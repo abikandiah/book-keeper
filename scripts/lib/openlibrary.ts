@@ -24,17 +24,27 @@ function normalizeTitle(value: string): string {
 		.trim();
 }
 
+// Below this length a title is too short/generic for a prefix match to be
+// safe — e.g. "It" is a legitimate word-boundary prefix of "It Governance
+// for Dummies" and countless other unrelated titles. Below the threshold,
+// only an exact match is accepted.
+const MIN_PREFIX_MATCH_LENGTH = 12;
+
 // Loose on purpose: Open Library titles frequently differ from the queried
 // title by a subtitle (e.g. "Fooled by Randomness" vs "Fooled by randomness:
 // the hidden role of chance..."), so exact equality would reject too many
-// real matches. A prefix match in either direction catches that case while
-// still rejecting an unrelated book that merely shares a word — the actual
-// risk this guards against.
+// real matches. A word-boundary prefix match (not a raw substring prefix —
+// that would also match "Italian Cooking" against "It") catches the
+// subtitle case while still rejecting an unrelated book that merely shares
+// a leading word.
 function titlesMatch(queried: string, candidate: string | undefined): boolean {
 	if (!candidate) return false;
 	const a = normalizeTitle(queried);
 	const b = normalizeTitle(candidate);
-	return a.length > 0 && b.length > 0 && (a === b || a.startsWith(b) || b.startsWith(a));
+	if (a.length === 0 || b.length === 0) return false;
+	if (a === b) return true;
+	const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+	return shorter.length >= MIN_PREFIX_MATCH_LENGTH && longer.startsWith(`${shorter} `);
 }
 
 export async function lookupIsbn(title: string, author?: string): Promise<string | undefined> {

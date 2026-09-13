@@ -1,17 +1,41 @@
 ---
+import { getCollection } from 'astro:content';
+import Layout from '../layouts/Layout.astro';
+import { BookCard } from '../components/BookCard';
+import { sortByDateAddedDesc } from '../lib/books';
 
+const books = (await getCollection('books')).sort(sortByDateAddedDesc);
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<Layout
+	title="Book Keeper"
+	description="A personal library of books read, with chapter-by-chapter summaries and key claims for review."
+>
+	<div class="index-page">
+		<div class="page-heading">
+			<h1 class="page-heading-title">Book Keeper</h1>
+			<p class="page-heading-description">
+				{books.length} book{books.length === 1 ? '' : 's'}, most recently added first.
+			</p>
+		</div>
+		{
+			books.length === 0 ? (
+				<p class="collection-empty">No books yet.</p>
+			) : (
+				<ul class="book-list">
+					{books.map((book) => (
+						<BookCard
+							slug={book.id}
+							title={book.data.title}
+							author={book.data.author}
+							year={book.data.year}
+							isbn={book.data.isbn}
+							tags={book.data.tags}
+							oneLineTakeaway={book.data.one_line_takeaway}
+						/>
+					))}
+				</ul>
+			)
+		}
+	</div>
+</Layout>

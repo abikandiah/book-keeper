@@ -1,0 +1,89 @@
+{
+  "title": "Sapiens: A Brief History of Humankind",
+  "author": "Yuval Noah Harari",
+  "year": 2011,
+  "isbn": "0099590085",
+  "tags": ["history", "anthropology", "evolution", "philosophy"],
+  "date_added": "2026-09-13",
+  "one_line_takeaway": "Homo sapiens took over the planet not through individual strength but through a unique capacity to cooperate flexibly in large numbers via shared myths.",
+  "synopsis": "Harari traces the history of our species across three revolutions — cognitive, agricultural, and scientific — arguing that what sets Sapiens apart is the ability to believe in and organize around shared fictions: money, nations, religions, and corporations. These 'intersubjective realities' let strangers cooperate at a scale no other animal can manage, but Harari is careful to note that this power came at a cost, from the wellbeing of domesticated animals to the happiness of the humans wielding it.",
+  "chapters": [
+    {
+      "number": 1,
+      "title": "An Animal of No Significance",
+      "key_points": [
+        "Places Homo sapiens as one of several human species, not a predestined apex",
+        "Physical evolution alone doesn't explain our later dominance"
+      ],
+      "core_claim": "For most of history Sapiens was an unremarkable animal among several competing human species, with no obvious sign it would come to dominate the planet."
+    },
+    {
+      "number": 2,
+      "title": "The Tree of Knowledge",
+      "key_points": [
+        "The Cognitive Revolution (~70,000 years ago) enabled complex language",
+        "Sapiens could talk about things that don't exist — myths, gods, nations",
+        "Shared fictions allow cooperation among strangers at unlimited scale"
+      ],
+      "core_claim": "The ability to communicate about purely imagined things is what let Sapiens organize in numbers far beyond what any other species could manage."
+    },
+    {
+      "number": 3,
+      "title": "A Day in the Life of Adam and Eve",
+      "key_points": [
+        "Foragers likely had more varied diets and more leisure time than assumed",
+        "Warns against reading history backward from agricultural/industrial norms"
+      ],
+      "core_claim": "Foraging societies were not straightforwardly worse off than what followed — the 'progress' narrative of history is not automatic."
+    },
+    {
+      "number": 4,
+      "title": "The Flood",
+      "key_points": [
+        "Sapiens' spread across continents coincided with mass extinctions of megafauna",
+        "Argues humans, not climate alone, drove many of these extinctions"
+      ],
+      "core_claim": "Wherever Sapiens arrived, an ecological disaster of large-animal extinction reliably followed."
+    },
+    {
+      "number": 5,
+      "title": "History's Biggest Fraud",
+      "key_points": [
+        "The Agricultural Revolution increased total food but not individual wellbeing",
+        "Farming tied people to a place and a narrower, riskier diet"
+      ],
+      "core_claim": "Agriculture is better understood as a trap that increased population at the expense of the average person's quality of life, not an unambiguous step forward."
+    },
+    {
+      "number": 6,
+      "title": "Building Pyramids",
+      "key_points": [
+        "Surplus from farming required new fictions — law codes, hierarchies — to organize cooperation",
+        "Imagined orders like Hammurabi's Code sustain large-scale social structures"
+      ],
+      "core_claim": "Large agricultural societies needed shared imagined orders to organize cooperation once they outgrew what personal relationships alone could manage."
+    }
+  ],
+  "key_claims_for_review": [
+    {
+      "prompt": "What does Harari mean by an 'intersubjective reality' or shared fiction?",
+      "answer": "Something that exists only because large numbers of people collectively believe in it and act accordingly — money, nations, and corporations are examples — as opposed to objective facts or purely subjective beliefs."
+    },
+    {
+      "prompt": "What triggered the Cognitive Revolution and why did it matter?",
+      "answer": "A genetic mutation around 70,000 years ago that gave Sapiens' language the capacity to describe fictional and abstract things, not just concrete facts — this let strangers cooperate at scale by sharing myths."
+    },
+    {
+      "prompt": "Why does Harari call the Agricultural Revolution 'history's biggest fraud'?",
+      "answer": "Because it increased the total amount of food and the size of the population, but for the average individual it meant harder labor, a worse diet, and more disease than foraging life."
+    },
+    {
+      "prompt": "What pattern does Harari observe about Sapiens' arrival on new continents?",
+      "answer": "Mass extinction of local megafauna reliably followed shortly after Sapiens arrived, implicating humans as a major driver of extinction rather than climate change alone."
+    },
+    {
+      "prompt": "Why did early agricultural societies need 'imagined orders' like law codes?",
+      "answer": "Because the number of people cooperating had outgrown what personal relationships and small-group instincts could manage, so shared fictions like Hammurabi's Code were needed to coordinate strangers and enforce hierarchy."
+    }
+  ]
+}

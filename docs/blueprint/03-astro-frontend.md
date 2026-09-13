@@ -80,13 +80,23 @@ one fresh. Concretely:
 - **`Layout.astro`** — shared shell: `<head>`, a fixed translucent header bar
   (`.site-header`/`.site-brand`/`.theme-toggle` from `global.css`, reused
   near-verbatim from amumble's structure), nav (Home / Tags), footer, wraps
-  page content. The brand mark is one of the bee SVGs already sitting in
-  `src/assets/` (`beekeeper-svgrepo-com.svg` or
-  `beehive-honey-svgrepo-com.svg`) — "Book Keeper" as a beekeeper pun is
-  intentional, use it in the `.site-logo` slot the way amumble's own logo
-  occupies that same slot. Nav stays minimal — this is a personal site for
-  one reader, not a product. Use the design system's layout/typography
-  primitives here rather than raw HTML where they exist.
+  page content. The brand mark is `src/assets/logo.svg` (originally seeded
+  as `beekeeper-svgrepo-com.svg`, renamed once selected as the actual logo;
+  the unused alternate `beehive-honey-svgrepo-com.svg` is still sitting in
+  `src/assets/` if a different mark is ever wanted) — "Book Keeper" as a
+  beekeeper pun is intentional. It's inlined via a Vite `?raw` import and
+  `set:html` (not `<img src>`), which is what lets `.site-logo svg path {
+  fill: var(--foreground) }` in `global.css` recolor it per theme — an
+  `<img>` reference can't be restyled that way. The original SVG had
+  per-path inline `fill` styles from its source (svgrepo.com), which inline
+  styles always win over a stylesheet rule; the checked-in file keeps only
+  the subset of paths that were already unstyled black outline/line-art in
+  the original (dropping the colored fill shapes), which is what renders as
+  a legible monochrome silhouette instead of a solid blob. Use it in the
+  `.site-logo` slot the way amumble's own logo occupies that same slot. Nav
+  stays minimal — this is a personal site for one reader, not a product. Use
+  the design system's layout/typography primitives here rather than raw HTML
+  where they exist.
 - **`BookCard`** — despite the name, this renders as a **compact list row**,
   not a boxed card (see "Listing layout" below) — used on `/` and
   `/tags/[tag]`. A small (`-M` size) cover thumbnail on the left if `isbn`

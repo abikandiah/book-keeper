@@ -1,0 +1,47 @@
+---
+import { getCollection, type CollectionEntry } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+import { BookCard } from '../../components/BookCard';
+import { sortByDateAddedDesc } from '../../lib/books';
+
+export async function getStaticPaths() {
+	const books = await getCollection('books');
+	const tags = [...new Set(books.flatMap((book) => book.data.tags))];
+
+	return tags.map((tag) => ({
+		params: { tag },
+		props: {
+			books: books.filter((book) => book.data.tags.includes(tag)).sort(sortByDateAddedDesc),
+		},
+	}));
+}
+
+interface Props {
+	books: CollectionEntry<'books'>[];
+}
+
+const { tag } = Astro.params;
+const { books } = Astro.props;
+---
+
+<Layout title={`${tag} — Book Keeper`} description={`Books tagged “${tag}”.`}>
+	<div class="index-page">
+		<div class="page-heading">
+			<h1 class="page-heading-title">{tag}</h1>
+			<p class="page-heading-description">{books.length} book{books.length === 1 ? '' : 's'}</p>
+		</div>
+		<ul class="book-list">
+			{books.map((book) => (
+				<BookCard
+					slug={book.id}
+					title={book.data.title}
+					author={book.data.author}
+					year={book.data.year}
+					isbn={book.data.isbn}
+					tags={book.data.tags}
+					oneLineTakeaway={book.data.one_line_takeaway}
+				/>
+			))}
+		</ul>
+	</div>
+</Layout>

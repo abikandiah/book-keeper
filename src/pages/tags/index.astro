@@ -1,0 +1,38 @@
+---
+import { getCollection } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+
+const books = await getCollection('books');
+const counts = new Map<string, number>();
+for (const book of books) {
+	for (const tag of book.data.tags) {
+		counts.set(tag, (counts.get(tag) ?? 0) + 1);
+	}
+}
+const tags = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+---
+
+<Layout title="Tags — Book Keeper" description="All tags in use across the library.">
+	<div class="index-page">
+		<div class="page-heading">
+			<h1 class="page-heading-title">Tags</h1>
+			<p class="page-heading-description">{tags.length} tag{tags.length === 1 ? '' : 's'}</p>
+		</div>
+		{
+			tags.length === 0 ? (
+				<p class="collection-empty">No tags yet.</p>
+			) : (
+				<ul class="tags-index-list">
+					{tags.map(([tag, count]) => (
+						<li>
+							<a href={`/tags/${tag}`} class="tags-index-link">
+								<span>{tag}</span>
+								<span class="tags-index-count">{count}</span>
+							</a>
+						</li>
+					))}
+				</ul>
+			)
+		}
+	</div>
+</Layout>

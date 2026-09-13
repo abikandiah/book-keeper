@@ -1,0 +1,54 @@
+---
+import { getCollection, type CollectionEntry } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+import { ChapterBlock } from '../../components/ChapterBlock';
+import { TagPill } from '../../components/TagPill';
+import { coverUrl } from '../../lib/covers';
+
+export async function getStaticPaths() {
+	const books = await getCollection('books');
+	return books.map((book) => ({
+		params: { slug: book.id },
+		props: { book },
+	}));
+}
+
+interface Props {
+	book: CollectionEntry<'books'>;
+}
+
+const { book } = Astro.props;
+const { title, author, year, isbn, tags, one_line_takeaway, synopsis, chapters } = book.data;
+const cover = coverUrl(isbn, 'L');
+const paragraphs = synopsis.split(/\n\n+/);
+---
+
+<Layout title={`${title} — Book Keeper`} description={one_line_takeaway}>
+	<article class="content-page">
+		<header class="article-header book-header">
+			{cover && <img src={cover} alt={`Cover of ${title}`} class="book-cover-lg" width={100} height={150} />}
+			<div>
+				<h1 class="article-title">{title}</h1>
+				<div class="article-byline">
+					<span class="article-meta">
+						<span>{author}</span>
+						{year && <span>{year}</span>}
+					</span>
+					<div class="article-tags">
+						{tags.map((tag) => <TagPill tag={tag} />)}
+					</div>
+				</div>
+			</div>
+		</header>
+
+		<div class="prose">
+			{paragraphs.map((paragraph) => <p>{paragraph}</p>)}
+		</div>
+
+		<div class="chapters">
+			{chapters.map((chapter) => <ChapterBlock chapter={chapter} />)}
+		</div>
+
+		<a href={`/review/${book.id}`} class="review-cta">Review key claims →</a>
+	</article>
+</Layout>
