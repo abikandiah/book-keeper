@@ -113,14 +113,31 @@ one fresh. Concretely:
 - **`TagPill`** — a tag chip, links to `/tags/[tag]`. This is very likely
   just the design system's existing `Badge` component reused directly —
   check before building a custom one.
-- **`ChapterBlock`** — renders one chapter: number, title, `core_claim` as a
-  pulled-out/emphasized line, `key_points` as a bullet list. Used in a loop
-  on the book page.
+- **`ChapterBlock`** — renders one chapter as a native `<details>`,
+  collapsed by default: number + title sit in the always-visible `<summary>`
+  (so the collapsed list reads as a scannable table of contents), and
+  `core_claim` (pulled-out/emphasized line) + `key_points` (bullet list)
+  only render once expanded. Collapsed-by-default was added once a 6+
+  chapter book made the fully-expanded list too long to be a fast
+  refresher — exactly the "accordion... once a book actually needs it"
+  upgrade this doc originally deferred. Native `<details>`/`<summary>`
+  rather than the design system's `Collapsible` (Radix-based, needs client
+  JS) — this keeps the "zero client JS except the review deck" rule intact.
+  Used in a loop on the book page.
 - Book page itself can be `src/pages/books/[slug].astro` directly rather than
-  a separate component, since it's not reused elsewhere — it composes
-  `ChapterBlock` in a loop, shows a larger cover next to the header if
-  `isbn` resolved (`-L` size instead of `-M`), and ends with a "Review key
-  claims →" link to `/review/[slug]`.
+  a separate component, since it's not reused elsewhere. Section order is
+  compressed-to-detailed, deliberately: header (title/cover/tags, plus
+  `one_line_takeaway` as a small italic line right in the header block —
+  v1 fetched this field but never rendered it on the page itself, which
+  missed the point of having it) → synopsis (no label — with everything
+  else this compact, "this paragraph is the synopsis" is self-evident from
+  position) → `key_claims_for_review` as a `<details open>` (open by
+  default, collapsible if wanted) rendering plain read-through prompt/
+  answer pairs, ending with the "Review key claims →" link to
+  `/review/[slug]` *inside* that same section (as its natural conclusion,
+  not a standalone interstitial between two list-like sections) → the full
+  `ChapterBlock` loop for whoever wants the detail. Shows a larger cover
+  next to the header if `isbn` resolved (`-L` size instead of `-M`).
 
 ### Listing layout: compact rows, not a card grid
 

@@ -58,9 +58,10 @@ v1 was built wrong.
   find something.
 - **RSS/JSON feed** of newly added books, if you ever want to reference "what
   did I read recently" from outside the site itself.
-- **Accordion/collapse for long chapter lists** on the book page (Part 3
-  flagged this) — add once a book with a genuinely long chapter list (e.g.
-  All About Circuits) makes the plain list unwieldy.
+- ~~Accordion/collapse for long chapter lists on the book page~~ — done: a
+  6+ chapter book made the fully-expanded list unwieldy sooner than
+  expected, so each `ChapterBlock` is now a collapsed-by-default native
+  `<details>` (see Part 3).
 
 ## Explicitly not planned
 

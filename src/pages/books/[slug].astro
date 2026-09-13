@@ -19,7 +19,7 @@ interface Props {
 }
 
 const { book } = Astro.props;
-const { title, author, year, isbn, tags, one_line_takeaway, synopsis, chapters } = book.data;
+const { title, author, year, isbn, tags, one_line_takeaway, synopsis, chapters, key_claims_for_review } = book.data;
 const cover = coverUrl(isbn, 'L');
 const paragraphs = synopsis.split(/\n\n+/);
 ---
@@ -42,6 +42,7 @@ const paragraphs = synopsis.split(/\n\n+/);
 					<div class="article-tags">
 						{tags.map((tag) => <TagPill tag={tag} />)}
 					</div>
+					<p class="book-takeaway">{one_line_takeaway}</p>
 				</div>
 			</div>
 		</header>
@@ -50,9 +51,20 @@ const paragraphs = synopsis.split(/\n\n+/);
 			{paragraphs.map((paragraph) => <p>{paragraph}</p>)}
 		</div>
 
-		<div class="review-cta-row">
-			<a href={`/review/${book.id}`} class="review-cta">Review key claims →</a>
-		</div>
+		<details class="key-claims-section" open>
+			<summary class="section-label collapsible-summary">Key Claims ({key_claims_for_review.length})</summary>
+			<div class="key-claims">
+				{key_claims_for_review.map((claim) => (
+					<div class="key-claim">
+						<p class="key-claim-prompt">{claim.prompt}</p>
+						<p class="key-claim-answer">{claim.answer}</p>
+					</div>
+				))}
+			</div>
+			<div class="review-cta-row">
+				<a href={`/review/${book.id}`} class="review-cta">Review key claims →</a>
+			</div>
+		</details>
 
 		<div class="chapters">
 			{chapters.map((chapter) => <ChapterBlock chapter={chapter} />)}
