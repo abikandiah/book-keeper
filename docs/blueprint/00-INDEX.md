@@ -94,7 +94,7 @@ book-keeper/
 │       ├── index.astro        # All books
 │       ├── books/[slug].astro
 │       ├── tags/[tag].astro
-│       └── review/[[slug]].astro
+│       └── review/[...slug].astro
 ├── scripts/
 │   ├── generate-book.ts       # Generation pipeline: graph + CLI entry (Part 2)
 │   ├── lib/                   # model.ts, git.ts, prompts.ts (Part 2)

@@ -441,13 +441,20 @@ html.dark .theme-toggle .icon-moon {
 	margin: 0;
 }
 
-.section-label {
+/* .review-card-source (small uppercase source label on a review card)
+   shares this typography rather than a hand-rolled near-duplicate —
+   margin differs since its spacing there comes from a flex gap instead. */
+.section-label,
+.review-card-source {
 	font-family: var(--font-ui);
 	font-size: var(--text-label);
 	font-weight: 500;
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
 	color: var(--muted-foreground);
+}
+
+.section-label {
 	margin: 0 0 0.75rem;
 }
 
@@ -520,7 +527,12 @@ details[open] > .collapsible-summary::before {
 	margin: 0 0 0.25rem;
 }
 
-.key-claim-answer {
+/* .review-card-answer (the flashcard's revealed answer) shares this
+   typography rather than a hand-rolled near-duplicate — it adds only the
+   divider (padding-top/border-top) that separates it from the prompt
+   above, which .key-claim-answer doesn't need in its list context. */
+.key-claim-answer,
+.review-card-answer {
 	font-family: var(--font-prose);
 	font-size: 1rem;
 	line-height: 1.6;
@@ -771,4 +783,86 @@ details[open] > .collapsible-summary::before {
 code {
 	font-family: var(--font-mono);
 	font-size: 0.875em;
+}
+
+/* ── Review mode (/review, /review/[slug]) ───────────────── */
+/* Page wrapper reuses .content-page (identical max-width/margin) rather
+   than duplicating that rule under a new name — see its definition. */
+
+.review-deck {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 1.5rem;
+	padding: 2rem 0;
+}
+
+/* Mono for the progress counter — one of the few places on the site where
+   a numeric readout is actually the content, rather than prose being
+   forced into a "technical" register it doesn't need (see Part 3's
+   "study guide" note on why that was reverted elsewhere). */
+.review-progress {
+	margin: 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-xs);
+	letter-spacing: 0.03em;
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Deliberately not the design system's Card primitive — Card ships a small
+   border-radius and a translucent --card background, which would read as
+   a different visual object than .review-banner's flat bordered-box
+   language. This matches that instead: same border/background approach,
+   so the card this leads to feels continuous with the banner that links
+   to it. */
+.review-card {
+	width: 100%;
+	max-width: 42rem;
+	min-height: 14rem;
+	padding: 2.5rem;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 1.25rem;
+	border: 1px solid var(--border);
+	cursor: pointer;
+	transition: border-color 0.15s;
+}
+
+.review-card:hover,
+.review-card:focus-visible {
+	border-color: var(--primary);
+	outline: none;
+}
+
+/* Typography shared with .section-label (see its definition) — margin
+   differs since spacing here comes from .review-card's own flex gap. */
+.review-card-source {
+	margin: 0;
+}
+
+.review-card-prompt {
+	margin: 0;
+	font-family: var(--font-ui);
+	font-size: 1.25rem;
+	font-weight: 600;
+	line-height: 1.4;
+	color: var(--foreground);
+}
+
+.review-card-answer {
+	padding-top: 1.25rem;
+	border-top: 1px solid var(--border);
+}
+
+.review-controls {
+	display: flex;
+	gap: 0.75rem;
+}
+
+.review-empty {
+	font-family: var(--font-ui);
+	font-size: 0.875rem;
+	color: var(--muted-foreground);
 }

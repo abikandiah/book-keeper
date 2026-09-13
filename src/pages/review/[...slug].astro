@@ -1,0 +1,45 @@
+---
+import { getCollection, type CollectionEntry } from 'astro:content';
+import { BackLink } from '@abumble/design-system/components/BackLink';
+import Layout from '../../layouts/Layout.astro';
+import { ReviewDeck, type ReviewCard } from '../../components/ReviewDeck';
+
+export async function getStaticPaths() {
+	const books = await getCollection('books');
+	return [
+		{ params: { slug: undefined }, props: { books } },
+		...books.map((book) => ({ params: { slug: book.id }, props: { books: [book] } })),
+	];
+}
+
+interface Props {
+	books: CollectionEntry<'books'>[];
+}
+
+const { books } = Astro.props;
+// Route identity, not collection size — books.length === 1 would also be
+// true for /review itself once the whole library only has one book,
+// wrongly treating the all-books route as if it were /review/[slug].
+const { slug } = Astro.params;
+const singleBook = slug ? books[0] : undefined;
+
+const cards: ReviewCard[] = books.flatMap((book) =>
+	book.data.key_claims_for_review.map((claim) => ({
+		...claim,
+		bookTitle: book.data.title,
+	})),
+);
+
+const title = singleBook ? `Review — ${singleBook.data.title} — Book Keeper` : 'Review — Book Keeper';
+const description = singleBook
+	? `Flashcard review of key claims from ${singleBook.data.title}.`
+	: 'Flashcard review of key claims across every book.';
+---
+
+<Layout title={title} description={description}>
+	<div class="content-page">
+		<h1 class="sr-only">{singleBook ? `Review — ${singleBook.data.title}` : 'Review'}</h1>
+		{singleBook && <BackLink href={`/books/${singleBook.id}`} label={`Back to ${singleBook.data.title}`} />}
+		<ReviewDeck client:load cards={cards} showSource={!singleBook} trackSlug={singleBook?.id} />
+	</div>
+</Layout>

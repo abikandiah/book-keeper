@@ -58,10 +58,14 @@ const paragraphs = synopsis.split(/\n\n+/);
 			{paragraphs.map((paragraph) => <p>{paragraph}</p>)}
 		</div>
 
-		<a href={`/review/${book.id}`} class="review-banner">
-			<span>Test yourself on {key_claims_for_review.length} key claim{key_claims_for_review.length === 1 ? '' : 's'}</span>
-			<span class="review-banner-arrow">→</span>
-		</a>
+		{key_claims_for_review.length > 0 && (
+			<a href={`/review/${book.id}`} class="review-banner">
+				<span>
+					Test yourself on {key_claims_for_review.length} key claim{key_claims_for_review.length === 1 ? '' : 's'}
+				</span>
+				<span class="review-banner-arrow">→</span>
+			</a>
+		)}
 
 		<details class="key-claims-section">
 			<summary class="section-label collapsible-summary">Key Claims ({key_claims_for_review.length})</summary>
