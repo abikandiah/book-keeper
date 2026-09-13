@@ -353,6 +353,19 @@ See Part 5.
 **Job:** determine author, year, and the real chapter/section list, in
 order — output validated against `outlineSchema`.
 
+**Cover lookup (not model output):** after the outline call, look up an ISBN
+via `scripts/lib/openlibrary.ts`'s `lookupIsbn(title, author)` — a direct
+call to Open Library's `search.json` API, not the Tavily `SearchProvider`
+(this is a structured field lookup consumed straight in code, not a search
+snippet for an LLM to read). **The `fields` query parameter must be passed
+explicitly** — confirmed directly against the live API: Open Library's
+default response omits `isbn` entirely unless you ask for it
+(`fields=isbn`), which isn't obviously documented anywhere and will silently
+produce `undefined` for every book if missed. Never throws: any failure
+(no match, network error, malformed response) resolves to `undefined`,
+which just means that book renders without a cover — never blocks
+generation.
+
 ### Stage 2 — Per-chapter drafting (parallel, concurrency-capped)
 One `chapterDetail` invocation per chapter, dispatched via `Send`, throttled
 to 3-5 concurrent via `p-limit`. **Search:** `"<book title>" "<chapter
@@ -390,6 +403,10 @@ ever needs to touch the top-level fields). Cap at 3 retries, then throw via
 - `src/content/schema.ts` — plain Zod schemas, the single source of truth
   (see the schema-location correction above).
 - `scripts/lib/model.ts` — `createModel()`, the `ChatOpenAI` factory.
+- `scripts/lib/openlibrary.ts` — `lookupIsbn(title, author?)`, a direct
+  fetch against Open Library's search API (not behind the `SearchProvider`
+  interface — see Stage 1 above for why). No API key needed; it's a free,
+  unauthenticated endpoint.
 - `scripts/lib/git.ts` — thin wrappers around the `git` CLI via
   `node:child_process`'s `execFileSync` (branch existence/creation, clean
   working tree check, add+commit) — no git library dependency needed.
@@ -461,6 +478,12 @@ ever needs to touch the top-level fields). Cap at 3 retries, then throw via
   `TavilyProvider` validates the response actually has a `results` array
   before mapping over it, and Zod issue formatting was deduplicated into one
   `formatIssue` helper instead of two copies of the same `.map()`.
+- ✅ `lookupIsbn` exercised against the real, live Open Library API for two
+  real titles (correct ISBNs returned) and one nonsense title (`undefined`,
+  no throw) — this is what caught the missing-`fields`-parameter bug above;
+  the initial implementation silently returned `undefined` for every book,
+  real or not, until fixed. The resulting cover URLs were confirmed to
+  resolve to real JPEGs via the Covers API directly.
 - ⬜ Not yet tested (needs real `OPENROUTER_API_KEY` + `TAVILY_API_KEY`):
   actual generation quality, the top-level repair-retry loop firing for
   real, and a real book ending up committed on a real `book/<slug>` branch.

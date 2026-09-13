@@ -167,6 +167,38 @@ and for a note on OpenRouter's free-tier (`:free`-suffixed) models.
 Confirm `.gitignore` includes `.env`, `.env.*`, `node_modules`, `dist`,
 `.astro` — Astro's scaffold sets most of this up by default, just verify.
 
+## pnpm-workspace.yaml — two confirmed gotchas
+
+This repo carries build-script/dependency-age settings in
+`pnpm-workspace.yaml` (`allowBuilds`, `minimumReleaseAgeExclude`). Two real
+issues surfaced running this in Cloudflare's build environment, both
+confirmed directly against actual failing builds, not just reasoned about:
+
+1. **`packages` must be declared explicitly**, even for a single-package
+   repo with no real workspace. A `pnpm-workspace.yaml` containing only
+   settings and no `packages` field throws `ERROR packages field missing or
+   empty` on `pnpm install` on some pnpm versions (this repo hit it on
+   Cloudflare's pnpm@10.11.1) — a known pnpm bug
+   ([pnpm/pnpm#9361](https://github.com/pnpm/pnpm/issues/9361)) triggered
+   specifically by a workspace file with settings-only content. Fix:
+   ```yaml
+   packages:
+     - '.'
+   allowBuilds:
+     esbuild: false
+   minimumReleaseAgeExclude:
+     - zod@4.6.3
+   ```
+2. **Declaring `packages` makes pnpm treat this as a real workspace root**,
+   which changes `pnpm add` behavior: any tool that tries to `pnpm add`
+   something without `-w`/`--workspace-root` now gets refused with
+   `ERR_PNPM_ADDING_TO_ROOT`. This bit Cloudflare's `wrangler deploy` when
+   its "automatic configuration" step tried to auto-install
+   `@astrojs/cloudflare` mid-deploy (see the Hosting section below and
+   `wrangler.jsonc`) — the fix there wasn't to touch `pnpm-workspace.yaml`
+   again, it was to commit a `wrangler.jsonc` so that auto-configuration
+   step never runs in the first place.
+
 ## First commit & deploy
 
 ```bash
@@ -175,13 +207,36 @@ git commit -m "Initial Astro scaffold: react, tailwind, design-system, blueprint
 gh repo create book-keeper --private --source=. --remote=origin --push
 ```
 
-Then in Cloudflare Pages: connect the repo, build command `astro build`,
-output directory `dist`. First deploy will just be Astro's default starter
-page — that's the "pipeline works" checkpoint, not a real milestone.
+Then in Cloudflare: create a **Workers** project (not legacy Pages) with git
+integration, connect the repo, build command `pnpm run build`, output
+directory `dist`. Before the first deploy, commit a `wrangler.jsonc` at the
+repo root:
+
+```jsonc
+{
+  "name": "book-keeper", // must match the Worker name Cloudflare assigned
+  "compatibility_date": "2026-09-13",
+  "assets": { "directory": "./dist" }
+}
+```
+
+This is required, not optional — without it, `wrangler deploy`'s
+"automatic configuration" step detects Astro and wrongly assumes an SSR
+adapter is needed, then tries to `pnpm add @astrojs/cloudflare` mid-deploy.
+That fails once `pnpm-workspace.yaml` declares an explicit `packages` field
+(see the pnpm-workspace.yaml note above) with `ERR_PNPM_ADDING_TO_ROOT`,
+since pnpm then refuses to silently add a dependency to the workspace root.
+Committing `wrangler.jsonc` upfront skips that whole guessing flow — this
+is a fully static site (`output: "static"`), so no adapter or Worker
+entrypoint script is needed regardless, just `dist/` served as static
+assets. First deploy will just be Astro's default starter page — that's the
+"pipeline works" checkpoint, not a real milestone.
 
 ## Acceptance check for this part
 
 - `pnpm dev` boots cleanly inside the devcontainer with no errors.
 - `pnpm build` succeeds (even with no real book content yet).
-- The Cloudflare Pages first deploy is live at a `*.pages.dev` URL.
+- The Cloudflare Workers first deploy succeeds end-to-end (install → build →
+  `wrangler deploy`) and is live at the assigned `*.workers.dev` URL (or
+  custom domain, if configured).
 - This is the state Part 1 assumes as its starting point.

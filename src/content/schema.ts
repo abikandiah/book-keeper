@@ -22,6 +22,11 @@ export const bookSchema = z.object({
 	title: z.string(),
 	author: z.string(),
 	year: z.number().optional(),
+	// Resolved via the Open Library search API in Stage 1 (not asked of the
+	// LLM) — used to construct a cover-image URL at render time
+	// (https://covers.openlibrary.org/b/isbn/<isbn>-M.jpg). Absent when no
+	// match is found; the frontend must render fine without it.
+	isbn: z.string().optional(),
 	tags: z.array(z.string()).min(1),
 	date_added: z.string(), // ISO date, when it was added to the site
 	one_line_takeaway: z.string(),
@@ -53,9 +58,11 @@ export const synthesisSchema = bookSchema.pick({
 
 // Stage 4 repair-loop output — every top-level field a repair call could
 // plausibly need to fix. Excludes `chapters` (already validated per-chapter
-// before Stage 4 ever runs, see Part 2's "Per-chapter validation") and
-// `date_added` (script-generated, never model output).
-export const repairableSchema = bookSchema.omit({ chapters: true, date_added: true });
+// before Stage 4 ever runs, see Part 2's "Per-chapter validation"),
+// `date_added` (script-generated, never model output), and `isbn` (resolved
+// via a direct API lookup, not model knowledge — asking the model to
+// "repair" it would just invite a hallucinated ISBN).
+export const repairableSchema = bookSchema.omit({ chapters: true, date_added: true, isbn: true });
 
 export type Chapter = z.infer<typeof chapterSchema>;
 export type ChapterContent = z.infer<typeof chapterContentSchema>;

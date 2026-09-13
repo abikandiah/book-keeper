@@ -1,0 +1,16 @@
+{
+	// Book Keeper is a fully static Astro site (output: "static") — no
+	// Cloudflare adapter/Worker entrypoint needed, just static assets served
+	// from the edge. Having this file present is what matters most: without
+	// any wrangler config, `wrangler deploy`'s "automatic configuration"
+	// step detects Astro and wrongly assumes an SSR adapter is needed, then
+	// tries to `pnpm add @astrojs/cloudflare` mid-deploy — which fails once
+	// pnpm-workspace.yaml declares a `packages` field (see git history),
+	// since pnpm then refuses to silently add a dependency to the workspace
+	// root. Committing this file skips that whole guessing flow.
+	"name": "book-keeper",
+	"compatibility_date": "2026-09-13",
+	"assets": {
+		"directory": "./dist"
+	}
+}

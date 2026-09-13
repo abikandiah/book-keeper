@@ -49,6 +49,7 @@ export const bookSchema = z.object({
   title: z.string(),
   author: z.string(),
   year: z.number().optional(),
+  isbn: z.string().optional(), // resolved via Open Library, not the LLM — see below
   tags: z.array(z.string()).min(1),
   date_added: z.string(), // ISO date, when it was added to the site
   one_line_takeaway: z.string(),
@@ -110,6 +111,15 @@ for, and so you don't quietly redefine these later):
 - **`tags`** — free-form lowercase-kebab strings (e.g. `embedded-systems`,
   `statistics`, `psychology`). No fixed taxonomy for v1 — just be consistent
   with casing so tag pages group correctly.
+- **`isbn`** (optional) — resolved by Part 2 via a direct Open Library API
+  lookup, not asked of the LLM. Used to construct a cover-image URL at
+  render time: `https://covers.openlibrary.org/b/isbn/<isbn>-M.jpg` (`-L`
+  for a larger size on the book detail page). Absent whenever no match is
+  found (obscure/self-published titles, or a title Open Library just
+  doesn't have) — the frontend must render fine without it: no cover
+  thumbnail for that book, not a broken-image placeholder. Deliberately
+  storing the ISBN rather than a resolved URL, so a future change to how
+  covers are sourced only touches the one place the URL gets built.
 
 ## Slug / filename convention
 

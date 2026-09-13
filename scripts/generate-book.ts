@@ -12,6 +12,7 @@ import {
 	synthesisSchema,
 	type Book,
 	type Chapter,
+	type Repairable,
 	type Synthesis,
 } from '../src/content/schema';
 import {
@@ -23,6 +24,7 @@ import {
 	isWorkingTreeClean,
 } from './lib/git';
 import { createModel } from './lib/model';
+import { lookupIsbn } from './lib/openlibrary';
 import { buildChapterPrompt, buildOutlinePrompt, buildRepairPrompt, buildSynthesisPrompt } from './lib/prompts';
 import { TavilyProvider } from './search/tavily';
 import type { SearchProvider } from './search/types';
@@ -77,6 +79,13 @@ const BookGenState = Annotation.Root({
 	originalBranch: Annotation<string>({ reducer: overwrite, default: () => '' }),
 	author: Annotation<string | undefined>(),
 	year: Annotation<number | undefined>(),
+	// A live Promise, not a resolved value — kicked off in outlineNode but
+	// deliberately not awaited there, so its network round-trip overlaps
+	// with the (much longer) parallel chapter fan-out instead of serializing
+	// in front of it. Only awaited where isbn is actually consumed
+	// (validateNode). Fine to hold a raw Promise in state since checkpointing
+	// isn't used in v1 — nothing ever needs to serialize this.
+	isbnPromise: Annotation<Promise<string | undefined> | undefined>(),
 	chapterTitles: Annotation<string[]>({ reducer: overwrite, default: () => [] }),
 	chapterIndex: Annotation<number>({ reducer: overwrite, default: () => 0 }),
 	totalChapters: Annotation<number>({ reducer: overwrite, default: () => 0 }),
@@ -143,10 +152,19 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 			`${outline.author ? ` by ${outline.author}` : ''}${outline.year ? ` (${outline.year})` : ''}`,
 	);
 
+	// Resolved via a direct Open Library API lookup, not the model — see
+	// scripts/lib/openlibrary.ts. Deliberately NOT awaited here: isbn isn't
+	// consumed until validateNode (Stage 4), so kicking this off without
+	// blocking lets its round-trip overlap with the parallel chapter
+	// fan-out instead of serializing in front of it. Never throws;
+	// `undefined` just means no cover image, handled gracefully downstream.
+	const isbnPromise = lookupIsbn(outline.title, outline.author);
+
 	return {
 		title: outline.title,
 		author: outline.author,
 		year: outline.year,
+		isbnPromise,
 		chapterTitles: outline.chapter_titles,
 		totalChapters: outline.chapter_titles.length,
 	};
@@ -233,10 +251,17 @@ async function validateNode(state: State): Promise<Partial<State>> {
 	// prompting, but that sort was never fed back into shared state).
 	const sortedChapters = [...state.chapters].sort((a, b) => a.number - b.number);
 
+	// Kicked off (not awaited) back in outlineNode, so its round-trip has
+	// been overlapping with the chapter fan-out + synthesis this whole
+	// time — awaiting it here is normally instant, not a fresh wait.
+	const isbn = await state.isbnPromise;
+	console.log(isbn ? `Found ISBN ${isbn} (cover image available).` : 'No ISBN found — book will render without a cover.');
+
 	const candidate = {
 		title: state.title,
 		author: state.author,
 		year: state.year,
+		isbn,
 		tags: state.synthesis?.tags ?? [],
 		date_added: new Date().toISOString().slice(0, 10),
 		one_line_takeaway: state.synthesis?.one_line_takeaway ?? '',
@@ -257,13 +282,28 @@ async function validateNode(state: State): Promise<Partial<State>> {
 }
 
 async function repairNode(state: State): Promise<Partial<State>> {
-	// Bound to repairableSchema (every top-level field except `chapters` and
-	// `date_added`) rather than just synthesisSchema — validateNode's
-	// `bookSchema` check covers title/author/year too (e.g. an outline that
-	// came back with no determinable author), and a synthesis-only repair
-	// could never fix a failure in one of those fields, burning all retries
-	// on an unfixable error.
-	const candidate = {
+	// Bound to repairableSchema (every top-level field except `chapters`,
+	// `date_added`, and `isbn`) rather than just synthesisSchema —
+	// validateNode's `bookSchema` check covers title/author/year too (e.g.
+	// an outline that came back with no determinable author), and a
+	// synthesis-only repair could never fix a failure in one of those
+	// fields, burning all retries on an unfixable error. `isbn` is
+	// deliberately left untouched here — it came from a direct API lookup,
+	// not the model, so it stays whatever outlineNode resolved (possibly
+	// undefined) regardless of what else needed repairing.
+	//
+	// The explicit `: Partial<Repairable>` annotation on `candidate` is
+	// deliberate, not decorative: it's what makes `repairableSchema` and
+	// this object literal one structural checkpoint instead of two
+	// independently-drifting field lists — if a field is ever added to or
+	// removed from `repairableSchema` (via bookSchema changing), this
+	// literal fails to compile until it's updated to match, rather than
+	// silently under/over-supplying the repair prompt. `Partial` (rather
+	// than `Repairable` itself) because this snapshot represents the
+	// *currently broken* state being repaired — e.g. `author` can
+	// legitimately be missing here, which is exactly the case this repair
+	// path exists to fix, even though a valid `Repairable` requires it.
+	const candidate: Partial<Repairable> = {
 		title: state.title,
 		author: state.author,
 		year: state.year,
@@ -276,16 +316,17 @@ async function repairNode(state: State): Promise<Partial<State>> {
 		.withStructuredOutput(repairableSchema)
 		.invoke(buildRepairPrompt(candidate, state.validationErrors));
 
+	// Only title/author/year are named explicitly (they live at the top
+	// level of state); everything else rest-spreads straight into
+	// `synthesis` so a future repairable field added to bookSchema flows
+	// through automatically instead of needing a matching edit here.
+	const { title, author, year, ...synthesisFields } = repaired;
+
 	return {
-		title: repaired.title,
-		author: repaired.author,
-		year: repaired.year,
-		synthesis: {
-			one_line_takeaway: repaired.one_line_takeaway,
-			synopsis: repaired.synopsis,
-			tags: repaired.tags,
-			key_claims_for_review: repaired.key_claims_for_review,
-		},
+		title,
+		author,
+		year,
+		synthesis: synthesisFields,
 		retryCount: state.retryCount + 1,
 	};
 }

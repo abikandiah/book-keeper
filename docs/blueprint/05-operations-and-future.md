@@ -21,12 +21,13 @@ ideas have somewhere to go that isn't "the v1 build."
 5. When you're satisfied, merge it: either a plain local merge
    (`git checkout main && git merge book/<slug>`), or, if you want to see it
    on the actual deployed site before merging, `git push -u origin
-   book/<slug>` and open a PR (`gh pr create`) — Cloudflare Pages, once
-   connected to the repo, builds a preview URL for pushed branches/PRs
-   automatically, no CI workflow needed for that. Merge to `main` when
-   satisfied.
-6. Cloudflare Pages rebuilds `main` automatically; check the live site once
-   it's deployed. Delete the merged `book/<slug>` branch.
+   book/<slug>` and open a PR (`gh pr create`) — Cloudflare Workers, once
+   connected to the repo, builds a preview deployment for pushed
+   branches/PRs automatically, no CI workflow needed for that. Merge to
+   `main` when satisfied.
+6. Cloudflare rebuilds and redeploys `main` automatically (see Part 0 for
+   the Workers/`wrangler.jsonc` setup); check the live site once it's
+   deployed. Delete the merged `book/<slug>` branch.
 
 That's the whole loop. The draft-branch step is the review gate — if it
 ever stops feeling like enough (e.g. you want the push/PR-open step
@@ -75,6 +76,6 @@ v1 was built wrong.
 - [ ] Home, book detail, and tag pages render correctly for 2+ books
 - [ ] Review mode works across books and per-book, with basic last-reviewed
       persistence
-- [ ] Site is live on a Cloudflare Pages URL, connected to `main`
+- [ ] Site is live on a Cloudflare Workers URL, connected to `main`
 - [ ] You've personally added at least one *real* book you've actually read
       and confirmed the summary is accurate enough to trust

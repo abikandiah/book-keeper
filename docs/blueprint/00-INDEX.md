@@ -50,16 +50,26 @@ as a first task.
   hand-called sequential functions — chapters are generated via a parallel,
   concurrency-capped fan-out (`Send`/map-reduce), and the graph shape leaves
   room to add future stages without restructuring — see Part 2.
-- **Hosting:** Cloudflare Pages, connected to a GitHub repo, building on push
-  to `main`. Build command `astro build`, output dir `dist`.
+- **Hosting:** Cloudflare **Workers** with static assets (not legacy Pages —
+  the project was created via Cloudflare's newer Workers product), connected
+  to a GitHub repo, building on push to `main`. Build command `pnpm run
+  build`, output dir `dist`, deployed via `wrangler deploy` reading
+  `wrangler.jsonc`'s `assets.directory`. This is a fully static site (Astro
+  `output: "static"`) — no Cloudflare adapter, no Worker entrypoint script
+  needed, just `dist/` served as static assets. `wrangler.jsonc` must exist
+  in the repo: without it, `wrangler deploy`'s "automatic configuration"
+  guesses Astro needs the SSR adapter and tries to `pnpm add
+  @astrojs/cloudflare` mid-deploy, which fails once `pnpm-workspace.yaml`
+  declares a `packages` field (see Part 0's pnpm-workspace.yaml note) —
+  don't delete `wrangler.jsonc` to "simplify" the repo.
 - **Review process (v1):** draft-branch based, still no GitHub Actions, no
   bots. The generation script itself creates a `book/<slug>` branch off
   `main` and commits the generated JSON there (`main` stays untouched); you
   preview with `astro dev`, edit the JSON directly if needed, then merge to
   `main` yourself when satisfied. Pushing that branch and opening a PR is a
-  manual step for now — Cloudflare Pages will build a preview URL for it
-  once pushed, no CI required — auto-pushing is a later upgrade (see Part 5),
-  don't build it now.
+  manual step for now — Cloudflare will build a preview deployment for the
+  pushed branch, no CI required — auto-pushing is a later upgrade (see
+  Part 5), don't build it now.
 - **Content fidelity (v1):** generation is title-only, using search-API
   grounding — not grounded in the actual book text/PDF. This is a known,
   accepted limitation for v1, not a bug to fix immediately.
