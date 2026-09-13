@@ -13,7 +13,6 @@ const books = (await getCollection('books')).sort(sortByDateAddedDesc);
 >
 	<div class="index-page">
 		<h1 class="sr-only">Book Keeper</h1>
-		<p class="index-lede">A running archive of what I've read — the refresher I come back to.</p>
 		{
 			books.length === 0 ? (
 				<p class="collection-empty">No books yet.</p>

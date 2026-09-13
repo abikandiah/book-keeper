@@ -208,9 +208,11 @@ html.dark .theme-toggle .icon-moon {
 }
 
 .footer-copyright {
+	max-width: 34ch;
 	font-family: var(--font-ui);
 	font-size: var(--text-xs);
 	color: var(--muted-foreground);
+	line-height: 1.5;
 }
 
 /* ── Index page (/, /tags/[tag], /tags) ──────────────────── */
@@ -223,13 +225,6 @@ html.dark .theme-toggle .icon-moon {
 /* The header's brand mark already establishes "Book Keeper" on every page,
    so the homepage's own <h1> is sr-only (kept for a11y/SEO) rather than
    visually repeating it — this lede is the only visible intro line. */
-.index-lede {
-	margin: 0 0 2.5rem;
-	font-family: var(--font-ui);
-	font-size: 0.875rem;
-	font-style: italic;
-	color: var(--muted-foreground);
-}
 
 /* ── Book list rows ───────────────────────────────────────
    Compact rows, not a card grid — see Part 3's "Listing layout" note.
@@ -240,7 +235,11 @@ html.dark .theme-toggle .icon-moon {
 
 .book-list {
 	list-style: none;
-	margin: 0;
+	/* Provides the top gap that used to come from .index-lede's own
+	   margin-bottom (removed) on the homepage; collapses harmlessly with
+	   .page-heading's own margin-bottom on tag pages, where it's already
+	   present. */
+	margin: 2.5rem 0 0;
 	padding: 0;
 }
 
@@ -656,8 +655,20 @@ details[open] > .collapsible-summary::before {
 
 /* ── Page heading (shared across list/taxonomy pages) ─── */
 
+/* Default gap suits a heading block that carries a description line under
+   the title (e.g. Tags' "N tags") — the two lines read as one unit, so a
+   bigger gap to the next, unrelated section is correct. A title-only
+   heading (e.g. Disclaimer) has nothing to visually anchor that same gap
+   against, so it reads as oversized — use .page-heading-solo there
+   instead, which ties the gap to the title's own font-size (a heading
+   tightly related to what follows runs close to 1x its own size; a real
+   section break runs closer to 1.5-2x, which is what the default is). */
 .page-heading {
 	margin-bottom: 2.5rem;
+}
+
+.page-heading-solo {
+	margin-bottom: 1.5rem;
 }
 
 .page-heading-title {
