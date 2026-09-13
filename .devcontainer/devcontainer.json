@@ -1,0 +1,46 @@
+// For format details, see https://aka.ms/devcontainer.json.
+{
+  "name": "Book Keeper",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "workspaceFolder": "/workspaces/book-keeper",
+  // 1. Runs on the HOST before the container starts
+  "initializeCommand": "sh -c 'mkdir -p $HOME/.claude $HOME/.gemini && touch $HOME/.claude.json'",
+  // 2. Fixes ownership of the named volume after it's mounted (volumes don't inherit image ownership)
+  "onCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.local/share/pnpm /workspaces/book-keeper",
+  // 3. Runs once the container is ready for work — guarded because the repo
+  // starts empty (no package.json until the Astro scaffold step runs)
+  "postCreateCommand": "sh -c '[ -f package.json ] && pnpm install || echo \"no package.json yet — run pnpm create astro@latest . first\"'",
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "astro-build.astro-vscode",
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss",
+        "redhat.vscode-yaml",
+        "google.gemini-vscode"
+      ],
+      "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "tailwindCSS.includeLanguages": { "astro": "html" }
+      }
+    }
+  },
+  "forwardPorts": [4321],
+  "mounts": [
+    // Auth & Config Bind Mounts
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude.json,target=/home/vscode/.claude.json,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gemini,target=/home/vscode/.gemini,type=bind,consistency=cached",
+    // Named Volume for pnpm store (persists across rebuilds so you don't re-download everything)
+    "source=book-keeper-pnpm-store,target=/home/vscode/.local/share/pnpm,type=volume"
+  ],
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true
+}

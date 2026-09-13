@@ -1,1 +1,757 @@
-@import "tailwindcss";
+@import '@abumble/design-system/styles.css';
+@plugin "@tailwindcss/typography";
+
+/* Fonts */
+@import '@fontsource/eb-garamond/400.css';
+@import '@fontsource/eb-garamond/400-italic.css';
+@import '@fontsource/eb-garamond/600.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/jetbrains-mono/400.css';
+
+/* ── Design tokens ────────────────────────────────────── */
+
+:root {
+	--font-prose: 'EB Garamond', Georgia, serif;
+	--font-ui: 'Inter', system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+	--width-page: 74ch;
+	/* primary reading/content column */
+	--width-body: 88ch;
+	/* site body — wider to breathe */
+
+	--text-prose: 1.125rem;
+	/* body / reading size */
+	--text-sm: 0.8125rem;
+	/* secondary UI text */
+	--text-xs: 0.75rem;
+	/* meta, type labels */
+	--text-label: 0.6875rem;
+	/* uppercase labels, tags */
+}
+
+/* ── Base ─────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+/* ── Focus styles (centralized) ──────────────────────── */
+
+.footer-col a:focus-visible,
+.item-link:focus-visible,
+.series-link:focus-visible,
+.tag-link:focus-visible,
+.collection-card:focus-visible,
+.theme-toggle:focus-visible,
+.from-collection-link:focus-visible,
+.from-collection-card:focus-visible,
+.from-series-item-link:focus-visible,
+.from-series-clip-link:focus-visible,
+.prose a:focus-visible {
+	outline: 2px solid var(--foreground);
+	outline-offset: 2px;
+}
+
+body {
+	font-family: var(--font-prose);
+	font-size: var(--text-prose);
+	line-height: 1.75;
+	background-color: var(--background);
+	color: var(--foreground);
+	margin: 0;
+	-webkit-font-smoothing: antialiased;
+}
+
+.body-container {
+	height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+
+.body-content {
+	@apply py-24 px-5;
+}
+
+/* ── Site header bar (global) ─────────────────────────── */
+
+.site-header {
+	@apply fixed top-0 z-50 flex items-center justify-center w-full h-12 px-5 bg-background/90;
+	box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
+}
+
+.site-header-content {
+	@apply flex flex-1 max-w-(--width-body);
+	justify-content: space-between;
+}
+
+.site-brand {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	text-decoration: none;
+	color: inherit;
+}
+
+.site-logo {
+	display: flex;
+	align-items: center;
+}
+
+.site-logo svg {
+	height: 1.5rem;
+	width: auto;
+	display: block;
+}
+
+.site-logo svg path {
+	fill: var(--foreground);
+}
+
+.site-brand-name {
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+.theme-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: var(--muted-foreground);
+	padding: 0.25rem;
+	border-radius: 4px;
+	transition: color 0.15s;
+	line-height: 0;
+}
+
+.theme-toggle:hover {
+	color: var(--foreground);
+}
+
+/* Icon visibility: moon in light mode, sun in dark mode */
+.theme-toggle .icon-sun {
+	display: none;
+}
+
+.theme-toggle .icon-moon {
+	display: block;
+}
+
+html.dark .theme-toggle .icon-sun {
+	display: block;
+}
+
+html.dark .theme-toggle .icon-moon {
+	display: none;
+}
+
+/* ── Site footer bar (global) ─────────────────────────── */
+
+.site-footer {
+	@apply mt-auto px-5 py-10 flex justify-center;
+	border-top: 1px solid var(--border);
+}
+
+.site-footer-container {
+	max-width: var(--width-body);
+	flex: 1;
+}
+
+.footer-brand-name {
+	font-family: var(--font-prose);
+	font-size: 1rem;
+	font-weight: 600;
+	display: block;
+	margin-bottom: 0.375rem;
+}
+
+.footer-brand-tagline {
+	font-family: var(--font-ui);
+	font-size: var(--text-sm);
+	color: var(--muted-foreground);
+	margin: 0 0 1rem;
+	line-height: 1.5;
+}
+
+.footer-copyright {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+}
+
+.footer-col a {
+	font-family: var(--font-ui);
+	font-size: var(--text-sm);
+	color: var(--muted-foreground);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.footer-col a:hover {
+	color: var(--foreground);
+}
+
+/* ── Index page ───────────────────────────────────────── */
+
+.index-page {
+	max-width: var(--width-page);
+	margin: 0 auto;
+}
+
+.index-lede {
+	margin-bottom: 2rem;
+}
+
+.index-lede p {
+	font-family: var(--font-prose);
+	font-size: var(--text-prose);
+	line-height: 1.75;
+	color: var(--foreground);
+	margin: 0;
+}
+
+.index-separator {
+	border: none;
+	border-top: 1px solid var(--border);
+	margin: 0 0 2rem;
+}
+
+.recent-heading {
+	font-family: var(--font-ui);
+	font-size: var(--text-label);
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--muted-foreground);
+	margin: 0 0 0.75rem;
+}
+
+.collection-card {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	padding: 0.875rem 1rem;
+	border: 1px solid var(--border);
+	text-decoration: none;
+	color: inherit;
+	transition: border-color 0.15s;
+}
+
+.collection-card:hover {
+	border-color: var(--foreground);
+}
+
+.collection-card-label {
+	font-family: var(--font-prose);
+	font-size: 1rem;
+	font-weight: 600;
+	line-height: 1.2;
+}
+
+.collection-card-desc {
+	font-family: var(--font-ui);
+	font-size: var(--text-sm);
+	color: var(--muted-foreground);
+	line-height: 1.4;
+}
+
+.content-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.content-item {
+	position: relative;
+	border-bottom: 1px solid var(--border);
+}
+
+.item-link::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+}
+
+.item-link {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1.5rem;
+	padding: 0.5rem 0.75rem;
+	text-decoration: none;
+	color: inherit;
+}
+
+.content-item:hover {
+	background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.item-left {
+	display: flex;
+	align-items: baseline;
+	gap: 0.5rem;
+	flex: 1;
+	min-width: 0;
+}
+
+.item-dot {
+	font-family: var(--font-prose);
+	color: var(--muted-foreground);
+	flex-shrink: 0;
+	user-select: none;
+	line-height: 1.35;
+}
+
+.item-title {
+	font-size: var(--text-prose);
+	line-height: 1.35;
+	min-width: 0;
+}
+
+.item-type {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+	text-transform: capitalize;
+	flex-shrink: 0;
+}
+
+.item-description {
+	font-size: 0.9375rem;
+	color: var(--muted-foreground);
+	margin: 0 0 0.875rem;
+	padding-left: 1.125rem;
+	line-height: 1.5;
+}
+
+/* ── About page ───────────────────────────────────────── */
+
+.about-page {
+	display: flex;
+	justify-content: center;
+	margin-top: 2rem;
+}
+
+.about-page .about-prose {
+	width: 100%;
+	max-width: var(--width-page);
+	font-size: var(--text-prose);
+	line-height: 1.75;
+}
+
+/* ── Content / reading pages ──────────────────────────── */
+
+.content-page {
+	max-width: var(--width-page);
+	margin: 0 auto;
+}
+
+.article-header {
+	margin-bottom: 2.5rem;
+	padding-bottom: 1rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.article-title {
+	font-size: clamp(1.5rem, 5vw, 2rem);
+	font-weight: 600;
+	line-height: 1.2;
+	margin: 0 0 0.75rem;
+	letter-spacing: -0.01em;
+}
+
+.article-byline {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.article-type {
+	font-family: var(--font-ui);
+	font-size: var(--text-sm);
+	color: var(--muted-foreground);
+	text-transform: capitalize;
+}
+
+.article-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem 1.25rem;
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	font-variant-numeric: oldstyle-nums;
+	color: var(--muted-foreground);
+}
+
+.article-type-row {
+	display: flex;
+	align-items: baseline;
+	gap: 0.4rem;
+}
+
+.series-link {
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.series-link:hover {
+	color: var(--foreground);
+}
+
+.article-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.375rem;
+}
+
+.tag-link {
+	font-family: var(--font-ui);
+	font-size: var(--text-label);
+	color: var(--muted-foreground);
+	text-decoration: none;
+	border: 1px solid var(--border);
+	padding: 0.125rem 0.5rem;
+	border-radius: 999px;
+	transition:
+		color 0.15s,
+		border-color 0.15s;
+}
+
+.tag-link:hover {
+	color: var(--foreground);
+	border-color: currentColor;
+}
+
+/* ── From the collection (end-of-content related block) ── */
+
+.from-collection {
+	margin-top: 3rem;
+	padding-top: 1.5rem;
+	border-top: 1px solid var(--border);
+}
+
+.from-collection-header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	margin-bottom: 0.75rem;
+}
+
+.from-collection-heading {
+	font-family: var(--font-ui);
+	font-size: var(--text-label);
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--muted-foreground);
+	margin: 0;
+}
+
+.from-collection-link {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.from-collection-link:hover {
+	color: var(--foreground);
+}
+
+.from-collection-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+}
+
+.from-collection-card {
+	flex: 1;
+	min-width: 200px;
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+	padding: 0.875rem 1rem;
+	border: 1px solid var(--border);
+	text-decoration: none;
+	color: inherit;
+	transition: border-color 0.15s;
+}
+
+.from-collection-card:hover {
+	border-color: var(--foreground);
+}
+
+.from-collection-card-title {
+	font-family: var(--font-prose);
+	font-size: 1rem;
+	line-height: 1.3;
+}
+
+.from-collection-card-type {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+	text-transform: capitalize;
+	margin-top: auto;
+}
+
+/* ── Series ToC list (end-of-content navigator) ──────── */
+
+.from-series-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.from-series-item {
+	display: flex;
+	align-items: baseline;
+	gap: 0.75rem;
+	padding: 0.4rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.from-series-item:last-child {
+	border-bottom: none;
+}
+
+.from-series-number {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+	min-width: 1.5ch;
+	flex-shrink: 0;
+	user-select: none;
+}
+
+.from-series-item-link {
+	font-family: var(--font-prose);
+	font-size: 0.9375rem;
+	color: var(--muted-foreground);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.from-series-item-link:hover {
+	color: var(--foreground);
+}
+
+.from-series-clip {
+	padding: 0.3rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.from-series-clip:last-child {
+	border-bottom: none;
+}
+
+.from-series-clip-link {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.from-series-clip-link:hover {
+	color: var(--foreground);
+}
+
+.from-series-item-title {
+	font-family: var(--font-prose);
+	font-size: 0.9375rem;
+	font-weight: 600;
+	color: var(--foreground);
+}
+
+/* ── Page heading (shared across list/taxonomy pages) ─── */
+
+.page-heading {
+	margin-bottom: 2.5rem;
+}
+
+.page-heading-title {
+	font-size: 1.5rem;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	margin: 0;
+}
+
+.page-heading-description {
+	font-family: var(--font-ui);
+	font-size: 0.875rem;
+	color: var(--muted-foreground);
+	margin: 0.375rem 0 0;
+	font-style: italic;
+}
+
+.collection-empty {
+	font-family: var(--font-ui);
+	font-size: 0.875rem;
+	color: var(--muted-foreground);
+	font-style: italic;
+	margin: 0;
+}
+
+/* ── Verse feed page ──────────────────────────────────── */
+
+.verse-feed-page {
+	max-width: var(--width-page);
+	margin: 0 auto;
+}
+
+.verse-feed {
+	display: flex;
+	flex-direction: column;
+}
+
+.verse-entry {
+	padding: 2rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.verse-feed .verse-entry:first-child {
+	border-top: 1px solid var(--border);
+}
+
+.verse-feed .verse-entry:last-child {
+	border-bottom: none;
+}
+
+.verse-entry-meta {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	margin-bottom: 0.75rem;
+}
+
+.verse-entry-date {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+	font-variant-numeric: oldstyle-nums;
+}
+
+.verse-entry-permalink {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.verse-entry-permalink:hover {
+	color: var(--foreground);
+}
+
+.verse-entry-title {
+	font-family: var(--font-prose);
+	font-size: 1.0625rem;
+	font-weight: 600;
+	margin: 0 0 0.75rem;
+	line-height: 1.3;
+}
+
+.verse-entry-prose {
+	min-height: 0;
+}
+
+.verse-pagination {
+	margin-top: 3rem;
+	padding-top: 1.5rem;
+	border-top: 1px solid var(--border);
+}
+
+.verse-pagination-inner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.verse-pagination-link {
+	font-family: var(--font-ui);
+	font-size: var(--text-sm);
+	color: var(--muted-foreground);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.verse-pagination-link:not(.verse-pagination-link--disabled):hover {
+	color: var(--foreground);
+}
+
+.verse-pagination-link--disabled {
+	opacity: 0.35;
+	pointer-events: none;
+	cursor: default;
+	user-select: none;
+}
+
+.verse-pagination-count {
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+}
+
+/* Prose — @tailwindcss/typography with design system tokens */
+
+.prose {
+	font-family: var(--font-prose);
+	font-size: var(--text-prose);
+	max-width: none;
+	padding-bottom: 4rem;
+
+	/* Map all prose color variables to design system tokens.
+     Because these reference CSS custom properties, dark mode works automatically
+     with no .prose-invert needed. */
+	--tw-prose-body: var(--foreground);
+	--tw-prose-headings: var(--foreground);
+	--tw-prose-lead: var(--muted-foreground);
+	--tw-prose-links: var(--foreground);
+	--tw-prose-bold: var(--foreground);
+	--tw-prose-counters: var(--muted-foreground);
+	--tw-prose-bullets: var(--muted-foreground);
+	--tw-prose-hr: var(--border);
+	--tw-prose-quotes: var(--foreground);
+	--tw-prose-quote-borders: var(--border);
+	--tw-prose-captions: var(--muted-foreground);
+	--tw-prose-kbd: var(--foreground);
+	--tw-prose-kbd-shadows: var(--foreground);
+	--tw-prose-code: var(--foreground);
+	--tw-prose-pre-code: var(--foreground);
+	--tw-prose-pre-bg: var(--muted);
+	--tw-prose-th-borders: var(--border);
+	--tw-prose-td-borders: var(--border);
+}
+
+/* Match link style to the rest of the site */
+.prose a {
+	text-decoration-color: var(--border);
+	text-underline-offset: 3px;
+	transition: text-decoration-color 0.15s;
+}
+
+.prose a:hover {
+	text-decoration-color: var(--foreground);
+}
+
+.prose blockquote {
+	font-style: normal;
+}
+
+.prose blockquote p::before,
+.prose blockquote p::after {
+	content: none;
+}
+
+code {
+	font-family: var(--font-mono);
+	font-size: 0.875em;
+}

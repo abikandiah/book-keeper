@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@abumble/design-system": "^0.0.50",
-    "@anthropic-ai/sdk": "^0.125.0",
     "@astrojs/react": "^6.0.5",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
