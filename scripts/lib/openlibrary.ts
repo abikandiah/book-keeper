@@ -17,17 +17,27 @@ interface OpenLibrarySearchResponse {
 	docs?: OpenLibrarySearchDoc[];
 }
 
+// NFKD-decompose + strip combining marks, matching scripts/generate-book.ts's
+// `slugify()` — without this, an accented queried title (e.g. "Über den
+// Umgang") and an ASCII-spelled Open Library title for the same book ("Uber
+// den Umgang") normalize to different strings ("ber den umgang" vs "uber den
+// umgang": stripping "ü" as if it were punctuation deletes it instead of
+// transliterating to "u"), and both branches of titlesMatch below fail on a
+// legitimate match.
 function normalizeTitle(value: string): string {
 	return value
 		.toLowerCase()
+		.normalize('NFKD')
+		.replace(/[\u0300-\u036f]/g, '') // strip combining diacritics after NFKD decomposition
 		.replace(/[^a-z0-9]+/g, ' ')
 		.trim();
 }
 
 // Below this length a title is too short/generic for a prefix match to be
-// safe — e.g. "It" is a legitimate word-boundary prefix of "It Governance
-// for Dummies" and countless other unrelated titles. Below the threshold,
-// only an exact match is accepted.
+// safe when the search wasn't also scoped by author — e.g. "It" is a
+// legitimate word-boundary prefix of "It Governance for Dummies" and
+// countless other unrelated titles. Below the threshold, only an exact
+// match is accepted, *unless* an author was supplied (see `titlesMatch`).
 const MIN_PREFIX_MATCH_LENGTH = 12;
 
 // Loose on purpose: Open Library titles frequently differ from the queried
@@ -37,14 +47,25 @@ const MIN_PREFIX_MATCH_LENGTH = 12;
 // that would also match "Italian Cooking" against "It") catches the
 // subtitle case while still rejecting an unrelated book that merely shares
 // a leading word.
-function titlesMatch(queried: string, candidate: string | undefined): boolean {
+//
+// `authorProvided` relaxes the length floor entirely: `lookupIsbn` passes
+// `author` straight into the Open Library query as its own filter param, so
+// a result reaching this function already matched on author server-side —
+// a short *and* single-word title like "Educated" (8 chars, under
+// MIN_PREFIX_MATCH_LENGTH) prefix-matching "Educated: A Memoir" is safe once
+// the author is already known to match; it's only a real ambiguity risk in
+// an unscoped, title-only search. Confirmed the length floor alone was
+// wrong: it rejected "Educated" vs "Educated: A Memoir" outright even
+// though the word-boundary check already accepted it.
+function titlesMatch(queried: string, candidate: string | undefined, authorProvided: boolean): boolean {
 	if (!candidate) return false;
 	const a = normalizeTitle(queried);
 	const b = normalizeTitle(candidate);
 	if (a.length === 0 || b.length === 0) return false;
 	if (a === b) return true;
 	const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
-	return shorter.length >= MIN_PREFIX_MATCH_LENGTH && longer.startsWith(`${shorter} `);
+	if (!longer.startsWith(`${shorter} `)) return false;
+	return authorProvided || shorter.length >= MIN_PREFIX_MATCH_LENGTH;
 }
 
 export async function lookupIsbn(title: string, author?: string): Promise<string | undefined> {
@@ -71,7 +92,7 @@ export async function lookupIsbn(title: string, author?: string): Promise<string
 
 		const data = (await res.json()) as OpenLibrarySearchResponse;
 		const match = data.docs?.find(
-			(doc) => Array.isArray(doc.isbn) && doc.isbn.length > 0 && titlesMatch(title, doc.title),
+			(doc) => Array.isArray(doc.isbn) && doc.isbn.length > 0 && titlesMatch(title, doc.title, Boolean(author)),
 		);
 		return match?.isbn?.[0];
 	} catch {

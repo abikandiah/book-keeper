@@ -21,10 +21,51 @@ export function shuffle<T>(items: T[]): T[] {
 	return result;
 }
 
-export function readLastReviewed(): Record<string, string> {
+// Shared by every Storage (localStorage/sessionStorage) read/write in this
+// project — access itself can throw (private browsing, quota, disabled
+// storage) independently of whatever's actually stored, so every call site
+// needs the same guard. One implementation here rather than hand-duplicated
+// per call site (previously copy-pasted between this file's last-reviewed
+// helpers and ReviewDeck.tsx's hint-seen helpers).
+//
+// Takes a *kind*, not the Storage object itself — `readHintSeen` runs during
+// Astro's SSR prerender (via `useState(readHintSeen)` at component render
+// time, not inside an effect), where the `sessionStorage`/`localStorage`
+// globals don't exist at all. Referencing either as a bare identifier
+// throws a ReferenceError at the *call site*, before a callee's own
+// try/catch ever gets a chance to run — confirmed directly: an earlier
+// version took `storage: Storage` and passed `sessionStorage` in as an
+// argument, which crashed `pnpm build`'s prerender of /review with
+// "ReferenceError: sessionStorage is not defined". Looking it up via
+// `globalThis.<kind>Storage` defers the access to *inside* this function's
+// try block, and property access on `globalThis` (which always exists)
+// never throws for a missing property the way a bare undeclared identifier
+// does — it just yields `undefined`.
+function resolveStorage(kind: 'local' | 'session'): Storage | undefined {
+	return kind === 'local' ? globalThis.localStorage : globalThis.sessionStorage;
+}
+
+export function safeStorageGet(kind: 'local' | 'session', key: string): string | null {
 	try {
-		const raw = localStorage.getItem(LAST_REVIEWED_KEY);
-		if (!raw) return {};
+		return resolveStorage(kind)?.getItem(key) ?? null;
+	} catch {
+		return null;
+	}
+}
+
+export function safeStorageSet(kind: 'local' | 'session', key: string, value: string) {
+	try {
+		resolveStorage(kind)?.setItem(key, value);
+	} catch {
+		// Storage access/write can throw (private browsing, quota, etc.) — the
+		// caller's feature still works for this visit, it just won't persist.
+	}
+}
+
+export function readLastReviewed(): Record<string, string> {
+	const raw = safeStorageGet('local', LAST_REVIEWED_KEY);
+	if (!raw) return {};
+	try {
 		const parsed = JSON.parse(raw);
 		// JSON.parse("null") / a stored array or primitive all parse without
 		// throwing, so the catch below doesn't cover them — without this
@@ -48,12 +89,7 @@ export function writeLastReviewed(bookSlug: string) {
 	// window for two tabs' writes to clobber each other, not narrow it.
 	const data = readLastReviewed();
 	data[bookSlug] = new Date().toISOString();
-	try {
-		localStorage.setItem(LAST_REVIEWED_KEY, JSON.stringify(data));
-	} catch {
-		// Storage access/write can throw (private browsing, quota, etc.) —
-		// the deck still works for this visit, it just won't persist.
-	}
+	safeStorageSet('local', LAST_REVIEWED_KEY, JSON.stringify(data));
 }
 
 // Builds the deck a session actually shows: cards grouped by book, books
@@ -64,6 +100,16 @@ export function writeLastReviewed(bookSlug: string) {
 // books happen to have more claims (a 15-claim book is 3x more likely to
 // appear than a 5-claim one on any given draw); round-robin-by-book
 // guarantees every book gets a card before any book gets a second one.
+//
+// `cap` is entirely the caller's call, not inferred from `cards` here —
+// an earlier version guessed "apply the cap only if `cards` spans more
+// than one book," which happened to work for the normal case but silently
+// broke the moment the *all-books* route legitimately reduced to a single
+// book (an early/small library where only one book has any claims yet):
+// the guess would then skip capping on a route that's supposed to always
+// be capped. Route identity (which page this is) is knowable exactly from
+// the caller (see `showSource`/`singleBook` in the `.astro` page and
+// ReviewDeck), so it belongs there, not re-derived from data shape here.
 export function buildDeck(cards: ReviewCard[], cap: number): ReviewCard[] {
 	const lastReviewed = readLastReviewed();
 
@@ -89,23 +135,15 @@ export function buildDeck(cards: ReviewCard[], cap: number): ReviewCard[] {
 	);
 	bookSlugs.sort((a, b) => staleness.get(a)! - staleness.get(b)!);
 
-	// The cap only makes sense once there's more than one book to ration
-	// cards across. On /review/[slug] `cards` is a single book's claims, and
-	// that book's own "Test yourself on N key claims" count (shown on the
-	// book page) already promises every one of them — capping there would
-	// silently truncate below that promise instead of just rationing across
-	// a shared session budget.
-	const effectiveCap = bookSlugs.length > 1 ? cap : Infinity;
-
 	// Bounded by the most claims any single book has, rather than a
 	// sentinel "did this round add anything" flag — the loop's exit
 	// condition is then a plain fact about the data, not something that
 	// has to be inferred from watching what happened last iteration.
 	const maxClaimsPerBook = Math.max(0, ...bookSlugs.map((slug) => byBook.get(slug)!.length));
 	const deck: ReviewCard[] = [];
-	for (let round = 0; round < maxClaimsPerBook && deck.length < effectiveCap; round++) {
+	for (let round = 0; round < maxClaimsPerBook && deck.length < cap; round++) {
 		for (const slug of bookSlugs) {
-			if (deck.length >= effectiveCap) break;
+			if (deck.length >= cap) break;
 			const list = byBook.get(slug)!;
 			if (round < list.length) deck.push(list[round]);
 		}

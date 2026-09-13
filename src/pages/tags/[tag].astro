@@ -7,13 +7,23 @@ import { formatTagLabel } from '../../lib/tags';
 
 export async function getStaticPaths() {
 	const books = await getCollection('books');
-	const tags = [...new Set(books.flatMap((book) => book.data.tags))];
 
-	return tags.map((tag) => ({
+	// Single pass grouping books by tag (matches tags/index.astro's own
+	// tag-counting pass) rather than re-scanning the whole book list once
+	// per distinct tag — that per-tag filter was O(books × tags), which
+	// only grows worse as both grow together.
+	const byTag = new Map<string, CollectionEntry<'books'>[]>();
+	for (const book of books) {
+		for (const tag of book.data.tags) {
+			const list = byTag.get(tag);
+			if (list) list.push(book);
+			else byTag.set(tag, [book]);
+		}
+	}
+
+	return [...byTag.entries()].map(([tag, taggedBooks]) => ({
 		params: { tag },
-		props: {
-			books: books.filter((book) => book.data.tags.includes(tag)).sort(sortByDateAddedDesc),
-		},
+		props: { books: taggedBooks.sort(sortByDateAddedDesc) },
 	}));
 }
 

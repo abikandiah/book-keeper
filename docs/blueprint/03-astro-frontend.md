@@ -257,3 +257,9 @@ The design system provides the concrete tokens (colors, spacing, type scale)
   confirm the no-cover case renders the `CoverPlaceholder` cleanly (no
   broken-image icon, no layout shift versus a row/header that has a real
   cover), not just the happy path.
+- ✅ A later full-project review pass caught `/tags/[tag]`'s
+  `getStaticPaths` re-filtering the entire book list once per distinct tag
+  (O(books × tags)) instead of grouping in one pass, unlike `/tags`'s own
+  `index.astro`, which already builds a single `Map` in one loop. Fixed by
+  reusing that same single-pass grouping approach; `pnpm build` output
+  (all per-tag pages, same content) confirmed unchanged.

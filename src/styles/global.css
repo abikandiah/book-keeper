@@ -643,21 +643,11 @@ details[open] > .collapsible-summary::before {
 	gap: 1rem;
 	margin: 0 0 2.5rem;
 	padding: 1rem 1.25rem;
-	border: 1px solid var(--border);
 	font-family: var(--font-ui);
 	font-size: 0.9375rem;
 	font-weight: 500;
 	color: var(--foreground);
 	text-decoration: none;
-	transition:
-		border-color 0.15s,
-		color 0.15s;
-}
-
-.review-banner:hover,
-.review-banner:focus-visible {
-	border-color: var(--primary);
-	color: var(--primary);
 }
 
 .review-banner-arrow {
@@ -816,15 +806,35 @@ code {
    language. This matches that instead: same border/background approach,
    so the card this leads to feels continuous with the banner that links
    to it. */
+/* Fixed height, not min-height — the card no longer grows when the answer
+   reveals, which used to push the controls (and everything below them)
+   down the page on every flip and back up on hide. 22rem is sized to
+   comfortably fit prompt + a several-sentence answer with room to spare
+   (checked against every claim in the current library, longest answer
+   included) without needing to scroll; `overflow-y: auto` is purely a
+   safety valve for a claim longer than any seen so far, not the expected
+   path — scrolling inside a small card is a worse experience than a
+   generous fixed height that just doesn't need it in practice. */
 .review-card {
 	width: 100%;
 	max-width: 42rem;
-	min-height: 14rem;
+	height: 22rem;
 	padding: 2.5rem;
 	display: flex;
 	flex-direction: column;
+	/* Plain `center` first as a fallback for browsers that don't understand
+	   `safe center` (an invalid value is ignored, so they just keep this
+	   line); `safe center` second so supporting browsers get it instead —
+	   centering an *overflowing* flex-column's content is otherwise a real
+	   bug, not just cosmetic: confirmed directly that plain `center` here
+	   pushes the start of the content above `scrollTop: 0`, i.e. no amount
+	   of scrolling can reach the top of the prompt once an answer overflows
+	   the card. `safe` falls back to start-alignment only when content
+	   overflows, so the common (fits, no scroll) case still looks centered. */
 	justify-content: center;
+	justify-content: safe center;
 	gap: 1.25rem;
+	overflow-y: auto;
 	border: 1px solid var(--border);
 	cursor: pointer;
 	transition: border-color 0.15s;
@@ -873,11 +883,62 @@ code {
 	gap: 0.75rem;
 }
 
-/* Larger than the button's own default text size — these are meant to
-   read as real "previous/next" affordances, not incidental glyphs. */
-.review-nav-arrow {
+/* Flat bordered box, same interaction language as .review-card/.review-banner
+   (border, no radius, no shadow, border/text moving to --primary on
+   hover/focus rather than a filled background) — keeps the whole deck
+   reading as one surface instead of the card sitting above generic
+   filled/shadowed button chrome. Shared with .review-banner via one rule
+   (rather than duplicated per selector) since it's the exact same pattern —
+   a previous duplicated copy had already drifted once (this file's
+   .review-control-btn had outline: none, .review-banner didn't), which is
+   exactly the kind of divergence one shared rule prevents. outline: none +
+   the border-color change together are the focus indicator, matching
+   .review-card's own focus-visible rule. */
+.review-banner,
+.review-control-btn {
+	border: 1px solid var(--border);
+	transition:
+		border-color 0.15s,
+		color 0.15s;
+}
+
+.review-banner:hover,
+.review-banner:focus-visible,
+.review-control-btn:hover,
+.review-control-btn:focus-visible {
+	border-color: var(--primary);
+	color: var(--primary);
+	outline: none;
+}
+
+.review-control-btn {
+	background: transparent;
+	font-family: var(--font-ui);
+	color: var(--foreground);
+	cursor: pointer;
+}
+
+.review-nav-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.75rem;
+	height: 2.75rem;
 	font-size: 1.25rem;
 	line-height: 1;
+}
+
+/* The deck's one primary action, so it stays visually heavier than the nav
+   arrows (wider padding + weight) without falling back to a filled
+   --primary background — same restraint as .review-banner. Border stays
+   the same 1px as every other flat-bordered element on the site
+   (.review-card, .review-banner, .review-nav-btn) — an earlier 2px
+   version read as a double border rather than "bolder," inconsistent
+   with the 1px language everywhere else. */
+.review-flip-btn {
+	padding: 0.75rem 2rem;
+	font-size: var(--text-sm);
+	font-weight: 600;
 }
 
 .review-empty {

@@ -64,17 +64,24 @@ Behavior:
   from the original v1 draft — user feedback after using the shipped
   version: a deck that only moves forward and wraps isn't actually a
   carousel, and recall practice isn't strictly linear (you double back to
-  re-check something). Both also respond to Left/Right arrow keys
-  (`window` `keydown` listener, matching the on-screen buttons), not just
-  click/tap.
+  re-check something). Both also respond to Left/Right arrow keys — an
+  `onKeyDown` handler on `.review-deck` itself (not a `window`-level
+  listener), relying on ordinary DOM bubbling so it only ever fires while
+  focus is already somewhere inside the deck, matching the on-screen
+  buttons.
 - Prev/Next render as icon-only arrow buttons (`aria-label`, no visible
-  text — required for icon-only controls) at reduced visual weight
-  (`variant="outline"`, smaller) flanking "Show answer," which stays the
-  single visually primary action (`variant="default"`, the only filled
-  button) in the center. The original layout had all three controls at
-  equal visual weight in one row, which read as an undifferentiated
-  cluster rather than "one primary action + peripheral navigation" — this
-  is what actually needed fixing, not the click/button redundancy above.
+  text — required for icon-only controls); "Show answer" stays the single
+  visually primary action in the center. All three are plain `<button>`s
+  styled with the same flat bordered-box language as `.review-card`/
+  `.review-banner` (`.review-control-btn` in `global.css`) — not the design
+  system's `Button` component, whose default/outline variants bring
+  Tailwind's rounded corners, shadow, and a solid `--primary` fill that
+  read as a different visual object next to the card. "Show answer" is
+  visually heavier via border-width/padding/weight, not a filled color.
+  The original layout had all three controls at equal visual weight in one
+  row, which read as an undifferentiated cluster rather than "one primary
+  action + peripheral navigation" — this is what actually needed fixing,
+  not the click/button redundancy above.
 - A plain "N of total" progress counter, mono type. Added post-v1-draft: an
   infinitely-wrapping shuffled deck with zero sense of progress reads as an
   endless scroll, not a study session — this is informational (same
@@ -130,8 +137,16 @@ Stored under a single key (`book-keeper:last-reviewed`):
 { "book-slug": "2026-09-12T00:00:00Z", ... }
 ```
 one timestamp per book slug. **Revised from the original v1 draft:** now
-updates whenever *any* card is flipped to reveal its answer, on *either*
+updates whenever a card is flipped to reveal its answer, on *either*
 `/review` or `/review/[slug]` — not just on visiting the single-book route.
+A "third pass" fix briefly also wrote this on Next/Prev (advancing past a
+card without flipping), reasoning that skimming should still count as
+engagement — **reconsidered and reverted**: flipping to test recall is the
+actual act of reviewing this tool exists for, so clicking through a deck
+without ever flipping shouldn't read as "reviewed" for staleness purposes
+either. The corollary (a card genuinely looked at but never flipped, e.g.
+closing the tab before flipping it, never updates that book's staleness) is
+accepted as correct, not a gap — see the "fourth pass" notes below.
 This changed because the timestamp gained a second job (see "All-books deck
 sizing" below): it's no longer just a courtesy "last reviewed" readout, it's
 also the input the all-books deck uses to decide what to prioritize showing
@@ -151,7 +166,8 @@ become real:
 1. **Unbounded size.** `/review`'s deck was every claim from every book,
    shuffled — at 50+ books that's several hundred cards in one "session,"
    with a progress counter reading something like "1 of 847." Fixed with a
-   hard cap, `DECK_CAP = 30` in `ReviewDeck.tsx` — a session always finishes
+   hard cap, `DECK_CAP = 30` (now in `src/lib/reviewDeck.ts`, see the
+   "third pass" notes below) — a session always finishes
    in a real sitting regardless of library size. The cap is a ceiling, not a
    fixed count: below it, nothing changes (confirmed directly against the
    real 2-book/13-claim library — deck size stays exactly the pool size).
@@ -203,19 +219,22 @@ is informational, not gamification — see "Component" above for why that
 distinction matters.
 
 Since `@abumble/design-system` (Part 3) is React + shadcn-ui already, prefer
-its primitives where they fit — `Button` for Show answer/Next, and
-`BackLink` (router-agnostic, chevron icon) for a "← Back to [book]" link on
-`/review/[slug]` so the page isn't a dead end, both rendered with no
-`client:*` directive since they're purely presentational. **The flashcard
-container itself is custom CSS, not the design system's `Card`** — `Card`
-ships a small border-radius and a translucent `--card` background, which
-would read as a visually distinct object from `.review-banner`'s flat,
-bordered, no-radius language on the book page that links here. Matching
-that instead (plain `border: 1px solid var(--border)`, no fill) makes the
-card feel continuous with the CTA that led to it, rather than introducing a
-third visual idiom. This is a deliberate exception to "prefer composing
-existing primitives," not an oversight — `.review-banner` itself set this
-precedent already.
+its primitives where they fit — `BackLink` (router-agnostic, chevron icon)
+for a "← Back to [book]" link on `/review/[slug]` so the page isn't a dead
+end, rendered with no `client:*` directive since it's purely presentational.
+**The flashcard container and its controls (Prev/Next/Show answer) are
+custom CSS, not the design system's `Card`/`Button`** — `Card` ships a small
+border-radius and a translucent `--card` background, and `Button`'s
+default/outline variants bring Tailwind's rounded corners, shadow, and a
+solid `--primary` (orange) fill; both would read as a visually distinct
+object from `.review-banner`'s flat, bordered, no-radius language on the
+book page that links here. Matching that instead — plain
+`border: 1px solid var(--border)`, no fill, border/text moving to
+`--primary` only on hover/focus (`.review-control-btn` in `global.css`) —
+makes the whole deck read as one continuous surface with the CTA that led
+to it, rather than a card with generic UI chrome bolted on below it. This
+is a deliberate exception to "prefer composing existing primitives," not an
+oversight — `.review-banner` itself set this precedent already.
 
 ## Acceptance check for this part
 
@@ -356,3 +375,80 @@ precedent already.
     check and the cases just above, no longer has to go through the
     component to exercise this logic, and it's now what a future automated
     test would import directly rather than needing to render React first).
+  - One of the extracted helpers (`safeStorageGet`/`safeStorageSet`) briefly
+    introduced a real regression during the extraction itself, caught by
+    `pnpm build` rather than inspection: taking `storage: Storage` as a
+    parameter and calling `safeStorageGet(sessionStorage, ...)` evaluates
+    the bare `sessionStorage` identifier in the *caller's* scope, which
+    doesn't exist during Astro's Node-based SSR prerender — the
+    `ReferenceError` threw before the callee's own try/catch ever ran,
+    crashing the `/review` prerender. Fixed by taking a `'local' | 'session'`
+    *kind* instead and resolving via `globalThis.localStorage`/
+    `globalThis.sessionStorage` inside the try block — property access on
+    `globalThis` (always defined) never throws for a missing property the
+    way referencing an undeclared bare identifier does.
+- ✅ A **fourth** pass — this time a full-project review (diffed against the
+  repo's root commit, not scoped to one part or one recent diff, since an
+  earlier attempt at "review everything" defaulted to just the latest
+  commit on a clean working tree) — caught 10 more findings across the
+  whole codebase; the ones landing in `ReviewDeck.tsx`/`reviewDeck.ts`,
+  fixed and re-verified (tsc, build, live browser checks including
+  synthetic held-key repeat events):
+  - Neither keyboard handler (`handleDeckKeyDown` for arrows,
+    `handleCardKeyDown` for Enter/Space) guarded against OS key-repeat.
+    Holding an arrow key fired `next()`/`prev()` on every repeat tick, each
+    writing a fresh last-reviewed timestamp for whatever book was being
+    left — holding the key under a second could mark a dozen unreviewed
+    books "just reviewed," corrupting the staleness ordering the feature
+    exists for. Fixed with an `if (e.repeat) return;` guard in both
+    handlers; confirmed directly by dispatching ten synthetic
+    `repeat: true` keydown events (deck didn't move) followed by one real
+    press (deck advanced normally).
+  - `buildDeck`'s cap-or-not decision had regressed to guessing from the
+    data (`bookSlugs.length > 1`) rather than being told by the caller —
+    the same class of mistake this file's own `/review/[...slug].astro`
+    comment warns against ("route identity, not collection size"). Once the
+    *all-books* route legitimately reduces to a single book with claims
+    (a small/early library), the guess would incorrectly skip capping on a
+    route that's always supposed to be capped. Fixed by moving the decision
+    to the component, which already knows route identity exactly via
+    `showSource`: `buildDeck(cards, showSource ? DECK_CAP : Infinity)`.
+    `buildDeck` itself no longer inspects `cards`' shape to decide this.
+  - `hasFlippedOnce` was React state mirroring `readHintSeen()`'s
+    `sessionStorage` read, needing its own `setHasFlippedOnce(true)` write
+    to stay in sync — pure redundant bookkeeping, since every path that can
+    change hint visibility (`toggleFlip`, via `setFlipped`) already
+    re-renders. Removed the state entirely; the hint's JSX condition calls
+    `readHintSeen()` directly.
+  - Two documentation self-contradictions from the doc not being fully
+    updated after later refactors: the "Behavior" section said arrow keys
+    used a `window` `keydown` listener (actually `onKeyDown` on
+    `.review-deck` since the third pass above) and described Prev/Next/Show
+    answer as the design system's `Button` component with size/variant
+    props (actually plain `.review-control-btn` elements since the same
+    pass); the "Visual treatment" section separately still instructed
+    "prefer `Button` for Show answer/Next," flatly contradicting the
+    shipped code right next to it. Both corrected in place.
+  - `.review-control-btn` (`global.css`) had reimplemented
+    `.review-banner`'s exact border/hover-to-primary interaction pattern
+    instead of sharing it, and the two had already drifted once
+    (`.review-control-btn` had `outline: none`, `.review-banner` didn't).
+    Consolidated the border/transition declaration and the
+    hover/focus-visible rule into one shared selector list covering both;
+    re-verified each still transitions from a neutral border to
+    `var(--primary)` on real hover (an earlier check that showed no visible
+    change turned out to be a test-script artifact — stale cursor position
+    left over from a previous step, not a CSS regression — resolved by
+    moving the mouse away first and waiting out the transition).
+  - One finding intentionally left open rather than patched: at the time,
+    only `toggleFlip` (on reveal) and `advance` (on navigating away) wrote
+    last-reviewed, so a card that's genuinely looked at but neither flipped
+    nor navigated away from (e.g. closing the tab on the last card of a
+    session) never updated its book's staleness. **Resolved by removing
+    `advance`'s write entirely, not by adding a third one:** the user's
+    call was that only flipping should count — clicking through a deck
+    without testing recall isn't "reviewing" in any sense this tool cares
+    about, so a card that's viewed-but-never-flipped correctly *not*
+    updating staleness isn't a gap after all, it's the intended behavior
+    once "reviewed" is defined that way. See the "Persistence" section
+    above.

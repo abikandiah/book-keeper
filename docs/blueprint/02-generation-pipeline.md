@@ -502,3 +502,22 @@ ever needs to touch the top-level fields). Cap at 3 retries, then throw via
 - ⬜ Not yet tested (needs real `OPENROUTER_API_KEY` + `TAVILY_API_KEY`):
   actual generation quality, the top-level repair-retry loop firing for
   real, and a real book ending up committed on a real `book/<slug>` branch.
+- ✅ A third review pass (a full-project sweep, not scoped to one part)
+  caught two more `titlesMatch`/`normalizeTitle` bugs in
+  `scripts/lib/openlibrary.ts`, both fixed and re-verified against
+  representative cases (short titles, diacritics, the original
+  false-positive case, exact matches, all correct): (1) `MIN_PREFIX_MATCH_LENGTH`
+  (12 chars, meant to stop something like "It" prefix-matching "It
+  Governance for Dummies") was rejecting *every* short queried title's
+  legitimate prefix match too — e.g. "Educated" vs "Educated: A Memoir" —
+  even though the word-boundary check already correctly accepted it. Fixed
+  by relaxing the length floor whenever an author was supplied to the
+  search (`lookupIsbn` always passes one in practice — `bookSchema`/
+  `outlineSchema` require `author` as non-optional), since Open Library's
+  own `author` query param already narrows the result set server-side,
+  making a short-title prefix match against an author-matched result far
+  safer than an unscoped one. (2) `normalizeTitle` stripped diacritics as
+  punctuation (deleting `ü` rather than transliterating it) instead of
+  NFKD-decomposing + stripping combining marks the way `slugify()` in
+  `generate-book.ts` already does — the two could normalize the same title
+  differently, silently losing a match for any non-ASCII title.
