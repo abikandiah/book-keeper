@@ -129,7 +129,7 @@ caps concurrency on the parallel per-chapter fan-out in Part 2 — see
 
 ```bash
 mkdir -p src/content/books scripts docs/blueprint
-touch src/content/config.ts   # filled in per Part 1
+touch src/content.config.ts   # filled in per Part 1
 ```
 
 `package.json` scripts to add:

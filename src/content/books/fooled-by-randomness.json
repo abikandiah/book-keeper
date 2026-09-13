@@ -1,0 +1,43 @@
+{
+  "title": "Fooled by Randomness",
+  "author": "Nassim Nicholas Taleb",
+  "year": 2001,
+  "tags": ["statistics", "philosophy", "finance", "decision-making"],
+  "date_added": "2026-09-12",
+  "one_line_takeaway": "We systematically underestimate the role of luck and overfit stories to random outcomes.",
+  "synopsis": "Taleb argues that randomness plays a far larger role in outcomes — especially in markets and careers — than we're willing to admit, and that our brains are wired to construct narratives that erase the role of luck after the fact. The book is less a statistics text than an extended argument for epistemic humility: surviving a risky strategy doesn't validate it, and the visible 'winners' we study are a survivorship-biased sample.",
+  "chapters": [
+    {
+      "number": 1,
+      "title": "The Cab Driver and the Economist",
+      "key_points": [
+        "Introduces the idea that outcomes are misread as skill when they're substantially luck",
+        "Sets up the recurring 'alternate histories' thought experiment"
+      ],
+      "core_claim": "A single observed outcome tells you very little without considering the full distribution of outcomes that could have happened."
+    },
+    {
+      "number": 2,
+      "title": "A Bizarre Accounting Method",
+      "key_points": [
+        "Introduces the trader Nero as a contrast to a flashier, luckier trader",
+        "Argues for judging decisions by process, not by outcome"
+      ],
+      "core_claim": "Judging a decision by its result rather than its process rewards recklessness whenever it happens to pay off."
+    }
+  ],
+  "key_claims_for_review": [
+    {
+      "prompt": "What is 'survivorship bias' as Taleb uses it?",
+      "answer": "The error of drawing conclusions from the visible 'winners' of a random process while ignoring the much larger, invisible population that took similar risks and failed."
+    },
+    {
+      "prompt": "Why does Taleb say judging decisions by outcomes is a mistake?",
+      "answer": "Because a good decision can still produce a bad outcome (and vice versa) under randomness — outcome-based judgment rewards luck rather than sound process."
+    },
+    {
+      "prompt": "What is the 'alternate histories' thought experiment for?",
+      "answer": "It asks you to imagine the many different ways a random process could have played out, to judge whether a single realized outcome was actually likely or just one lucky path among many."
+    }
+  ]
+}

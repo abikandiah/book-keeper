@@ -8,15 +8,24 @@ for full project context if needed.
 ## Task
 
 1. Set up Astro Content Collections for a `books` collection.
-2. Define the Zod schema below in `src/content/config.ts`.
+2. Define the Zod schema below in `src/content.config.ts`.
 3. Create one fully-filled example book JSON file so later parts have
    something real to render against.
 
 ## The schema
 
+The Astro version actually installed in this repo (7.3.2) removed the
+legacy `type: 'data'` / `src/content/config.ts` collection style entirely —
+`astro build` fails outright with `LegacyContentConfigError` if you use it.
+Collections now need the **Content Layer API**: the config file lives at
+`src/content.config.ts` (not inside `src/content/`), and every collection
+needs an explicit `loader`. For a folder of one-JSON-file-per-book, that's
+the built-in `glob` loader:
+
 ```ts
-// src/content/config.ts
+// src/content.config.ts
 import { defineCollection, z } from 'astro:content';
+import { glob } from 'astro/loaders';
 
 const chapterSchema = z.object({
   number: z.number(),
@@ -31,7 +40,7 @@ const keyClaimSchema = z.object({
 });
 
 const booksCollection = defineCollection({
-  type: 'data', // JSON/YAML, no markdown body needed
+  loader: glob({ pattern: '**/*.json', base: './src/content/books' }),
   schema: z.object({
     title: z.string(),
     author: z.string(),
@@ -49,6 +58,11 @@ export const collections = {
   books: booksCollection,
 };
 ```
+
+The schema shape itself (every field below) is unchanged from the original
+design — only the collection-definition wrapper around it changed. The
+`glob` loader's default `generateId` slugifies the file path, which lines up
+with the filename-is-slug convention below without extra config.
 
 Notes on field intent (so the generation pipeline in Part 2 knows what to aim
 for, and so you don't quietly redefine these later):
@@ -129,4 +143,5 @@ Create this as a real file so Parts 3 and 4 have something to build against:
 - `astro build` (or `astro check`) succeeds with the example file in place.
 - Astro rejects the file if you deliberately break the schema (e.g. remove
   `one_line_takeaway`) — confirm the validation is actually enforced, not just
-  present.
+  present. (Confirmed directly: removing `one_line_takeaway` produces a
+  build-time `InvalidContentEntryDataError` naming the missing field.)

@@ -1,7 +1,7 @@
 # Part 2 — Generation Pipeline
 
 **Context:** "Book Keeper" is a static Astro site (see `00-INDEX.md`). Part 1
-defined the target schema (`src/content/config.ts`) that every book's content
+defined the target schema (`src/content.config.ts`) that every book's content
 file must conform to. This part is the script that produces that JSON from
 just a book title, using an LLM via OpenRouter, with Tavily for search
 grounding, orchestrated as a **LangGraph** state graph with a parallel,
@@ -307,7 +307,7 @@ pairs, per the schema).
 - Merge Stages 1-3 into one object matching the full schema from Part 1.
   Chapters are already individually valid, so this check is really about
   the top-level synthesis fields and overall object shape.
-- Validate with the **same Zod schema** used in `src/content/config.ts` — the
+- Validate with the **same Zod schema** used in `src/content.config.ts` — the
   script should literally import it from there rather than redefining it, so
   there's exactly one source of truth for the shape.
 - On validation failure: feed the Zod error output back to the model in a
@@ -331,7 +331,7 @@ pairs, per the schema).
 ## Suggested implementation shape
 
 - Language: TypeScript/Node (so it can literally `import` the Zod schema from
-  `src/content/config.ts` — avoids maintaining the schema twice).
+  `src/content.config.ts` — avoids maintaining the schema twice).
 - LLM calls: `@langchain/openai`'s `ChatOpenAI`, `baseURL:
   process.env.LLM_BASE_URL`, `model: process.env.LLM_MODEL`, `apiKey:
   process.env.OPENROUTER_API_KEY`. Use `.withStructuredOutput(zodSchema)`

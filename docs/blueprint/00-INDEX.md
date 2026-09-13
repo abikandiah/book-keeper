@@ -72,8 +72,8 @@ as a first task.
 ```
 book-keeper/
 ├── src/
+│   ├── content.config.ts      # Zod schema + collection loader (Part 1)
 │   ├── content/
-│   │   ├── config.ts          # Zod schema (Part 1)
 │   │   └── books/*.json       # One file per book (Part 1)
 │   ├── components/            # BookCard, ChapterBlock, TagPill, ReviewDeck (Parts 3-4)
 │   ├── layouts/
