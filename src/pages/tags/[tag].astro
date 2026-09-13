@@ -3,6 +3,7 @@ import { getCollection, type CollectionEntry } from 'astro:content';
 import Layout from '../../layouts/Layout.astro';
 import { BookCard } from '../../components/BookCard';
 import { sortByDateAddedDesc } from '../../lib/books';
+import { formatTagLabel } from '../../lib/tags';
 
 export async function getStaticPaths() {
 	const books = await getCollection('books');
@@ -22,12 +23,13 @@ interface Props {
 
 const { tag } = Astro.params;
 const { books } = Astro.props;
+const tagLabel = formatTagLabel(tag);
 ---
 
-<Layout title={`${tag} — Book Keeper`} description={`Books tagged “${tag}”.`}>
+<Layout title={`${tagLabel} — Book Keeper`} description={`Books tagged “${tagLabel}”.`}>
 	<div class="index-page">
 		<div class="page-heading">
-			<h1 class="page-heading-title">{tag}</h1>
+			<h1 class="page-heading-title">{tagLabel}</h1>
 			<p class="page-heading-description">{books.length} book{books.length === 1 ? '' : 's'}</p>
 		</div>
 		<ul class="book-list">

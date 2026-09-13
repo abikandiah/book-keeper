@@ -9,6 +9,7 @@ interface Props {
 
 const { title, description } = Astro.props;
 const pathname = Astro.url.pathname;
+const isHome = pathname === '/';
 const isTagsSection = pathname === '/tags' || pathname.startsWith('/tags/');
 const year = new Date().getFullYear();
 ---
@@ -50,19 +51,15 @@ const year = new Date().getFullYear();
 						<span class="site-logo" set:html={logoSvg} />
 						<span class="site-brand-name">Book Keeper</span>
 					</a>
-					<nav class="site-nav">
-						<a href="/" class={`nav-link ${pathname === '/' ? 'nav-link-active' : ''}`}>Home</a>
-						<a href="/tags" class={`nav-link ${isTagsSection ? 'nav-link-active' : ''}`}>Tags</a>
-						<button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
-							<svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<circle cx="12" cy="12" r="4"></circle>
-								<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
-							</svg>
-							<svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-							</svg>
-						</button>
-					</nav>
+					<button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
+						<svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="12" cy="12" r="4"></circle>
+							<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+						</svg>
+						<svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+						</svg>
+					</button>
 				</div>
 			</header>
 			<main class="body-content">
@@ -70,9 +67,15 @@ const year = new Date().getFullYear();
 			</main>
 			<footer class="site-footer">
 				<div class="site-footer-container">
-					<span class="footer-brand-name">Book Keeper</span>
-					<p class="footer-brand-tagline">A personal library of what I've read, kept for the 2-minute refresher.</p>
-					<p class="footer-copyright">© {year} Book Keeper</p>
+					<div class="footer-brand">
+						<span class="footer-brand-name">Book Keeper</span>
+						<p class="footer-brand-tagline">Notes on what I've read, for future me.</p>
+						<p class="footer-copyright">© {year} Book Keeper</p>
+					</div>
+					<nav class="footer-nav">
+						<a href="/" class={isHome ? 'footer-nav-active' : ''}>Home</a>
+						<a href="/tags" class={isTagsSection ? 'footer-nav-active' : ''}>Tags</a>
+					</nav>
 				</div>
 			</footer>
 		</div>

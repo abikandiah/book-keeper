@@ -101,10 +101,15 @@ one fresh. Concretely:
   not a boxed card (see "Listing layout" below) — used on `/` and
   `/tags/[tag]`. A small (`-M` size) cover thumbnail on the left if `isbn`
   resolved to one — see Part 1's `isbn` field note for the URL pattern,
-  don't re-derive it here — otherwise just skip that slot entirely: no
-  placeholder box, no broken-image icon. Title, author/year, tag pills,
-  one-line takeaway. Links to `/books/[slug]`. Build as a React component,
-  rendered with no client directive.
+  don't re-derive it here — otherwise a `CoverPlaceholder` (a tinted box at
+  the same dimensions, with a small line-art book-glyph icon) fills the same
+  slot, so every row has the same layout regardless of whether a given book
+  has a resolved cover. (v1 shipped with no placeholder at all — an absent
+  `isbn` just skipped the slot entirely — but that was revised once real
+  covers existed alongside cover-less books side by side and the
+  inconsistency read as more jarring than a deliberate placeholder would.)
+  Title, author/year, tag pills, one-line takeaway. Links to `/books/[slug]`.
+  Build as a React component, rendered with no client directive.
 - **`TagPill`** — a tag chip, links to `/tags/[tag]`. This is very likely
   just the design system's existing `Badge` component reused directly —
   check before building a custom one.
@@ -181,5 +186,6 @@ The design system provides the concrete tokens (colors, spacing, type scale)
   confirms the templates hold up across varying input shapes — don't sign off
   on this part against a single example book only.
 - Test with **both** an `isbn` present and absent across your example books —
-  confirm the no-cover case renders cleanly (no broken-image icon, no empty
-  placeholder box), not just the happy path.
+  confirm the no-cover case renders the `CoverPlaceholder` cleanly (no
+  broken-image icon, no layout shift versus a row/header that has a real
+  cover), not just the happy path.

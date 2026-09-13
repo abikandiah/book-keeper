@@ -1,6 +1,17 @@
 @import '@abumble/design-system/styles.css';
 @plugin "@tailwindcss/typography";
 
+/* Tailwind's automatic content scan excludes node_modules by default, but
+   @abumble/design-system ships React components with Tailwind utility
+   classes baked into their pre-compiled JS (not a pre-generated CSS bundle
+   covering them) — without this, any component's own intrinsic classes
+   (padding, rounding, border width, flex layout, font size...) silently
+   never get generated, since nothing in our own source repeats those exact
+   class strings for Tailwind to pick up. Confirmed directly: Badge's
+   `px-2.5`/`inline-flex`/`rounded`/`border`/`text-xs`/`font-semibold` were
+   all completely absent from the built CSS until this was added. */
+@source "../../node_modules/@abumble/design-system/dist/**/*.js";
+
 /* Fonts */
 @import '@fontsource/eb-garamond/400.css';
 @import '@fontsource/eb-garamond/400-italic.css';
@@ -41,7 +52,7 @@
 
 /* ── Focus styles (centralized) ──────────────────────── */
 
-.nav-link:focus-visible,
+.footer-nav a:focus-visible,
 .theme-toggle:focus-visible,
 .tag-pill:focus-visible,
 .book-row-link:focus-visible,
@@ -112,12 +123,6 @@ body {
 	letter-spacing: -0.01em;
 }
 
-.site-nav {
-	display: flex;
-	align-items: center;
-	gap: 0.25rem;
-}
-
 .theme-toggle {
 	display: flex;
 	align-items: center;
@@ -163,6 +168,15 @@ html.dark .theme-toggle .icon-moon {
 .site-footer-container {
 	max-width: var(--width-body);
 	flex: 1;
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 2rem;
+	flex-wrap: wrap;
+}
+
+.footer-brand {
+	min-width: 0;
 }
 
 .footer-brand-name {
@@ -181,6 +195,26 @@ html.dark .theme-toggle .icon-moon {
 	line-height: 1.5;
 }
 
+.footer-nav {
+	display: flex;
+	flex-direction: column;
+	gap: 0.625rem;
+	flex-shrink: 0;
+}
+
+.footer-nav a {
+	font-family: var(--font-ui);
+	font-size: var(--text-sm);
+	color: var(--muted-foreground);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.footer-nav a:hover,
+.footer-nav a.footer-nav-active {
+	color: var(--foreground);
+}
+
 .footer-copyright {
 	font-family: var(--font-ui);
 	font-size: var(--text-xs);
@@ -192,6 +226,17 @@ html.dark .theme-toggle .icon-moon {
 .index-page {
 	max-width: var(--width-page);
 	margin: 0 auto;
+}
+
+/* The header's brand mark already establishes "Book Keeper" on every page,
+   so the homepage's own <h1> is sr-only (kept for a11y/SEO) rather than
+   visually repeating it — this lede is the only visible intro line. */
+.index-lede {
+	margin: 0 0 2.5rem;
+	font-family: var(--font-ui);
+	font-size: 0.875rem;
+	font-style: italic;
+	color: var(--muted-foreground);
 }
 
 /* ── Book list rows ───────────────────────────────────────
@@ -234,6 +279,26 @@ html.dark .theme-toggle .icon-moon {
 	object-fit: cover;
 	border: 1px solid var(--border);
 	background: var(--muted);
+}
+
+.book-cover-placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--muted-foreground);
+}
+
+/* Compound selectors so this wins over .book-cover-lg's own `background`
+   regardless of source order (both are otherwise equal-specificity,
+   single-class rules). */
+.book-cover.book-cover-placeholder,
+.book-cover-lg.book-cover-placeholder {
+	background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+.book-cover-placeholder svg {
+	width: 45%;
+	height: 45%;
 }
 
 .book-row-main {
@@ -389,8 +454,8 @@ html.dark .theme-toggle .icon-moon {
 .chapters {
 	display: flex;
 	flex-direction: column;
-	gap: 2rem;
-	margin: 2rem 0 3rem;
+	gap: 2.5rem;
+	margin: 2.5rem 0 3rem;
 }
 
 .chapter-block {
@@ -407,7 +472,7 @@ html.dark .theme-toggle .icon-moon {
 	display: flex;
 	align-items: baseline;
 	gap: 0.75rem;
-	margin-bottom: 0.75rem;
+	margin-bottom: 1rem;
 }
 
 .chapter-number {
@@ -425,7 +490,7 @@ html.dark .theme-toggle .icon-moon {
 
 .chapter-claim {
 	margin: 0 0 1rem;
-	padding-left: 1rem;
+	padding-left: 1.25rem;
 	border-left: 3px solid var(--primary);
 	font-family: var(--font-prose);
 	font-style: italic;
@@ -443,6 +508,10 @@ html.dark .theme-toggle .icon-moon {
 	display: flex;
 	flex-direction: column;
 	gap: 0.375rem;
+}
+
+.review-cta-row {
+	margin: 0 0 1rem;
 }
 
 .review-cta {
@@ -496,7 +565,10 @@ html.dark .theme-toggle .icon-moon {
 	font-family: var(--font-prose);
 	font-size: var(--text-prose);
 	max-width: none;
-	padding-bottom: 4rem;
+	/* Matches .article-header's own bottom margin, so the page's section
+	   transitions read as one consistent scale rather than this being a
+	   noticeably bigger gap than everything else on the page. */
+	padding-bottom: 2.5rem;
 
 	/* Map all prose color variables to design system tokens.
      Because these reference CSS custom properties, dark mode works automatically

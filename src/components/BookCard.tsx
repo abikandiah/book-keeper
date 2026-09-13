@@ -1,4 +1,5 @@
 import { coverUrl } from '../lib/covers';
+import { CoverPlaceholder } from './CoverPlaceholder';
 import { TagPill } from './TagPill';
 
 interface BookCardProps {
@@ -22,7 +23,11 @@ export function BookCard({ slug, title, author, year, isbn, tags, oneLineTakeawa
 	return (
 		<li className="book-row">
 			<div className="book-row-inner">
-				{cover && <img src={cover} alt="" className="book-cover" width={36} height={54} loading="lazy" />}
+				{cover ? (
+					<img src={cover} alt="" className="book-cover" width={36} height={54} loading="lazy" />
+				) : (
+					<CoverPlaceholder size="sm" />
+				)}
 				<div className="book-row-main">
 					<div className="book-row-title-line">
 						<a href={`/books/${slug}`} className="book-row-link">

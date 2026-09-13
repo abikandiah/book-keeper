@@ -12,12 +12,8 @@ const books = (await getCollection('books')).sort(sortByDateAddedDesc);
 	description="A personal library of books read, with chapter-by-chapter summaries and key claims for review."
 >
 	<div class="index-page">
-		<div class="page-heading">
-			<h1 class="page-heading-title">Book Keeper</h1>
-			<p class="page-heading-description">
-				{books.length} book{books.length === 1 ? '' : 's'}, most recently added first.
-			</p>
-		</div>
+		<h1 class="sr-only">Book Keeper</h1>
+		<p class="index-lede">What I've read, boiled down to what's worth remembering.</p>
 		{
 			books.length === 0 ? (
 				<p class="collection-empty">No books yet.</p>
