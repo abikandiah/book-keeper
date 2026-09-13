@@ -109,8 +109,13 @@ pnpm add @abumble/design-system
 pnpm add zod
 pnpm add @langchain/langgraph @langchain/core @langchain/openai
 pnpm add p-limit
-pnpm add -D tsx
+pnpm add -D tsx typescript @types/node
 ```
+
+`typescript` and `@types/node` are devDependencies for `tsc --noEmit`
+type-checking of the `scripts/` directory (Node globals like `process` and
+`fs` aren't typed without `@types/node`) — Astro's own build doesn't need
+either directly, but the generation script does.
 
 **Note:** `@langchain/openai`'s `ChatOpenAI` (not the raw `openai` SDK, and
 not the Anthropic SDK) is what's used to call OpenRouter, since OpenRouter
@@ -129,7 +134,9 @@ caps concurrency on the parallel per-chapter fan-out in Part 2 — see
 
 ```bash
 mkdir -p src/content/books scripts docs/blueprint
-touch src/content.config.ts   # filled in per Part 1
+touch src/content.config.ts   # thin defineCollection wrapper, filled in per Part 1
+mkdir -p src/content/books
+touch src/content/schema.ts   # the actual Zod schema — see Part 1/2
 ```
 
 `package.json` scripts to add:

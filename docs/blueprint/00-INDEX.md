@@ -72,8 +72,11 @@ as a first task.
 ```
 book-keeper/
 ├── src/
-│   ├── content.config.ts      # Zod schema + collection loader (Part 1)
+│   ├── content.config.ts      # thin defineCollection wrapper (Part 1)
 │   ├── content/
+│   │   ├── schema.ts           # the actual Zod schema — plain module, no
+│   │   │                       # astro:content import, so both Astro and
+│   │   │                       # the generation script can import it (Part 1/2)
 │   │   └── books/*.json       # One file per book (Part 1)
 │   ├── components/            # BookCard, ChapterBlock, TagPill, ReviewDeck (Parts 3-4)
 │   ├── layouts/
@@ -83,7 +86,9 @@ book-keeper/
 │       ├── tags/[tag].astro
 │       └── review/[[slug]].astro
 ├── scripts/
-│   └── generate-book.ts       # Generation pipeline (Part 2)
+│   ├── generate-book.ts       # Generation pipeline: graph + CLI entry (Part 2)
+│   ├── lib/                   # model.ts, git.ts, prompts.ts (Part 2)
+│   └── search/                # SearchProvider interface + TavilyProvider (Part 2)
 ├── astro.config.mjs
 └── package.json
 ```

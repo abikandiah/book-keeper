@@ -7,51 +7,66 @@ for full project context if needed.
 
 ## Task
 
-1. Set up Astro Content Collections for a `books` collection.
-2. Define the Zod schema below in `src/content.config.ts`.
+1. Define the Zod schema below in `src/content/schema.ts` — a plain module,
+   not inside `src/content.config.ts` (see "Two files, not one" below for why).
+2. Set up Astro Content Collections for a `books` collection in
+   `src/content.config.ts`, importing that schema.
 3. Create one fully-filled example book JSON file so later parts have
    something real to render against.
 
-## The schema
+## Two files, not one
 
-The Astro version actually installed in this repo (7.3.2) removed the
-legacy `type: 'data'` / `src/content/config.ts` collection style entirely —
-`astro build` fails outright with `LegacyContentConfigError` if you use it.
-Collections now need the **Content Layer API**: the config file lives at
-`src/content.config.ts` (not inside `src/content/`), and every collection
-needs an explicit `loader`. For a folder of one-JSON-file-per-book, that's
-the built-in `glob` loader:
+The schema needs to live somewhere importable by **both** Astro (for the
+content collection) and the Part 2 generation script (a standalone `tsx`
+process, no Vite involved). Those two constraints conflict if the schema
+lives inside `src/content.config.ts`, because that file also needs to import
+from Astro's virtual `astro:content` module — which only resolves inside
+Astro's own build pipeline. A `tsx`-run script that imports anything from a
+file containing `import ... from 'astro:content'` fails immediately with
+`Error: Cannot find module 'astro:content'`, confirmed directly.
+
+So the schema itself lives in **`src/content/schema.ts`** — zero
+Astro-specific imports, just `import { z } from 'zod'` — and
+`src/content.config.ts` becomes a thin wrapper that imports it:
 
 ```ts
-// src/content.config.ts
-import { defineCollection, z } from 'astro:content';
-import { glob } from 'astro/loaders';
+// src/content/schema.ts
+import { z } from 'zod';
 
-const chapterSchema = z.object({
+export const chapterSchema = z.object({
   number: z.number(),
   title: z.string(),
   key_points: z.array(z.string()).min(1).max(6),
   core_claim: z.string(), // one sentence: the chapter's central point
 });
 
-const keyClaimSchema = z.object({
+export const keyClaimSchema = z.object({
   prompt: z.string(),   // a recall cue, e.g. "What is the narrative fallacy?"
   answer: z.string(),   // the answer/explanation, 1-3 sentences
 });
 
+export const bookSchema = z.object({
+  title: z.string(),
+  author: z.string(),
+  year: z.number().optional(),
+  tags: z.array(z.string()).min(1),
+  date_added: z.string(), // ISO date, when it was added to the site
+  one_line_takeaway: z.string(),
+  synopsis: z.string(), // 1-3 paragraphs
+  chapters: z.array(chapterSchema).min(1),
+  key_claims_for_review: z.array(keyClaimSchema).min(3),
+});
+```
+
+```ts
+// src/content.config.ts
+import { defineCollection } from 'astro:content';
+import { glob } from 'astro/loaders';
+import { bookSchema } from './content/schema';
+
 const booksCollection = defineCollection({
   loader: glob({ pattern: '**/*.json', base: './src/content/books' }),
-  schema: z.object({
-    title: z.string(),
-    author: z.string(),
-    year: z.number().optional(),
-    tags: z.array(z.string()).min(1),
-    date_added: z.string(), // ISO date, when it was added to the site
-    one_line_takeaway: z.string(),
-    synopsis: z.string(), // 1-3 paragraphs
-    chapters: z.array(chapterSchema).min(1),
-    key_claims_for_review: z.array(keyClaimSchema).min(3),
-  }),
+  schema: bookSchema,
 });
 
 export const collections = {
@@ -59,10 +74,23 @@ export const collections = {
 };
 ```
 
-The schema shape itself (every field below) is unchanged from the original
-design — only the collection-definition wrapper around it changed. The
-`glob` loader's default `generateId` slugifies the file path, which lines up
-with the filename-is-slug convention below without extra config.
+(This also happens to fix a separate, older problem: the Astro version
+actually installed in this repo, 7.3.2, removed the legacy `type: 'data'` /
+`src/content/config.ts` collection style entirely — `astro build` fails
+outright with `LegacyContentConfigError` if you use it. Collections now need
+the **Content Layer API**, hence `defineCollection({ loader, schema })`
+rather than `defineCollection({ type: 'data', schema })`.)
+
+Part 2 adds a few more schemas to `src/content/schema.ts` — `outlineSchema`,
+`synthesisSchema`, `repairableSchema`, `chapterContentSchema` — each derived
+from `bookSchema`'s own fields via `.pick()`/`.omit()`/`.extend()` rather
+than redefined, so there's still exactly one source of truth for the shape.
+Nothing about the schema's actual field definitions changes from what's
+below — only which file it lives in, and the fact that it grows a few
+derived siblings in Part 2.
+
+The `glob` loader's default `generateId` slugifies the file path, which lines
+up with the filename-is-slug convention below without extra config.
 
 Notes on field intent (so the generation pipeline in Part 2 knows what to aim
 for, and so you don't quietly redefine these later):
