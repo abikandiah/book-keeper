@@ -38,7 +38,7 @@ Here is what web search turned up about this chapter (may be thin — chapter-le
 ${formatSearchResults(results)}
 
 Produce:
-- key_points: 1-6 concise bullet points covering what this chapter actually argues or covers
+- key_points: 1-10 concise bullet points covering what this chapter actually argues or covers — most chapters need far fewer than 10, but don't compress a genuinely dense chapter (e.g. a textbook chapter) down to fit an artificially low count
 - core_claim: a single sentence capturing the chapter's central point`;
 }
 

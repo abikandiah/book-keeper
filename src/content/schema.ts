@@ -9,7 +9,7 @@ import { z } from 'zod';
 export const chapterSchema = z.object({
 	number: z.number(),
 	title: z.string(),
-	key_points: z.array(z.string()).min(1).max(6),
+	key_points: z.array(z.string()).min(1).max(10),
 	core_claim: z.string(), // one sentence: the chapter's central point
 });
 
