@@ -57,7 +57,7 @@
 .tag-pill:focus-visible,
 .book-row-link:focus-visible,
 .tags-index-link:focus-visible,
-.review-cta:focus-visible,
+.review-banner:focus-visible,
 .prose a:focus-visible {
 	outline: 2px solid var(--foreground);
 	outline-offset: 2px;
@@ -490,10 +490,13 @@ details[open] > .collapsible-summary::before {
 
 /* Key claims are curated across the whole book (not one-per-chapter, see
    Part 1's schema note) — shown as plain read-through text here, distinct
-   from the interactive flashcard review mode linked just below. Neutral
-   border (not --primary) so it doesn't compete with the takeaway/core-claim
-   accent color for attention. Open by default (unlike chapters) since this
-   is the content most worth seeing on every visit. */
+   from the interactive flashcard review mode linked via .review-banner just
+   above (which now leads with the CTA, before any answers are visible, so
+   clicking through to active recall doesn't first spoil every answer).
+   Neutral border (not --primary) so it doesn't compete with the
+   takeaway/core-claim accent color for attention. Collapsed by default,
+   same as chapters — kept the page from front-loading every claim's full
+   text on a book with a long list. */
 .key-claims-section {
 	margin: 0 0 2.5rem;
 }
@@ -617,24 +620,38 @@ details[open] > .collapsible-summary::before {
 	color: var(--muted-foreground);
 }
 
-.review-cta-row {
-	margin-top: 1.5rem;
-}
-
-.review-cta {
-	display: inline-flex;
+/* Sits above the (collapsed-by-default) Key Claims list so the path to
+   active-recall practice doesn't require scrolling past every answer
+   first — reading the answers before testing yourself defeats the point
+   of the flashcard deck. Bordered block, not a plain text link, so it
+   reads as a distinct action rather than one more line in a list. */
+.review-banner {
+	display: flex;
 	align-items: center;
-	gap: 0.375rem;
+	justify-content: space-between;
+	gap: 1rem;
+	margin: 0 0 2.5rem;
+	padding: 1rem 1.25rem;
+	border: 1px solid var(--border);
 	font-family: var(--font-ui);
 	font-size: 0.9375rem;
 	font-weight: 500;
-	color: var(--primary);
+	color: var(--foreground);
 	text-decoration: none;
+	transition:
+		border-color 0.15s,
+		color 0.15s;
 }
 
-.review-cta:hover {
-	text-decoration: underline;
-	text-underline-offset: 3px;
+.review-banner:hover,
+.review-banner:focus-visible {
+	border-color: var(--primary);
+	color: var(--primary);
+}
+
+.review-banner-arrow {
+	font-family: var(--font-ui);
+	flex-shrink: 0;
 }
 
 /* ── Page heading (shared across list/taxonomy pages) ─── */
@@ -705,10 +722,19 @@ details[open] > .collapsible-summary::before {
 }
 
 /* Tighter than the typography plugin's default ~1.25em paragraph gap, to
-   match the line-height reduction above. */
+   match the line-height reduction above. Last paragraph's margin is zeroed
+   because .prose's own padding-bottom already provides the gap to whatever
+   follows (the review banner) — without this, the trailing margin sits
+   inside that padding (padding blocks margin-collapse) and adds an extra
+   ~18px on top of it, the one place on the page where a section gap drifts
+   off the 2.5rem rhythm everything else uses. */
 .prose p {
 	margin-top: 0;
 	margin-bottom: 1em;
+}
+
+.prose p:last-child {
+	margin-bottom: 0;
 }
 
 /* Match link style to the rest of the site */

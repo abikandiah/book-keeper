@@ -58,7 +58,12 @@ const paragraphs = synopsis.split(/\n\n+/);
 			{paragraphs.map((paragraph) => <p>{paragraph}</p>)}
 		</div>
 
-		<details class="key-claims-section" open>
+		<a href={`/review/${book.id}`} class="review-banner">
+			<span>Test yourself on {key_claims_for_review.length} key claim{key_claims_for_review.length === 1 ? '' : 's'}</span>
+			<span class="review-banner-arrow">→</span>
+		</a>
+
+		<details class="key-claims-section">
 			<summary class="section-label collapsible-summary">Key Claims ({key_claims_for_review.length})</summary>
 			<div class="key-claims">
 				{key_claims_for_review.map((claim) => (
@@ -67,9 +72,6 @@ const paragraphs = synopsis.split(/\n\n+/);
 						<p class="key-claim-answer">{claim.answer}</p>
 					</div>
 				))}
-			</div>
-			<div class="review-cta-row">
-				<a href={`/review/${book.id}`} class="review-cta">Review key claims →</a>
 			</div>
 		</details>
 
