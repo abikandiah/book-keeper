@@ -345,6 +345,14 @@ html.dark .theme-toggle .icon-moon {
 	gap: 0.375rem;
 }
 
+/* Sits inline with author/year meta text (.book-row-meta / .article-meta),
+   which is a plain <span>, not a pill row — keep it visually quiet. */
+.verified-badge {
+	font-size: var(--text-xs);
+	font-family: var(--font-ui);
+	vertical-align: baseline;
+}
+
 /* ── Tags index (/tags) ───────────────────────────────────── */
 
 .tags-index-list {

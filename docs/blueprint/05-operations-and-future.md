@@ -7,17 +7,24 @@ ideas have somewhere to go that isn't "the v1 build."
 
 ## Day-to-day workflow (v1, draft-branch based)
 
-1. Finish a book.
-2. `pnpm run generate -- "Book Title"` (Part 2's script). Watch stage-by-stage
-   progress in the terminal. The script creates a `book/<slug>` branch off
-   `main`, runs the pipeline, and commits the generated JSON there —
-   `main` is untouched.
+1. Finish a book. Optionally jot down a few rough notes/highlights as you go
+   — informal is fine, they're never published (see step 2).
+2. `pnpm run generate -- "Book Title"` (Part 2's script), or
+   `pnpm run generate -- "Book Title" --notes ./my-notes.txt` if you have
+   notes from step 1 — they steer which claims/themes the Synthesis stage
+   weights as important, without ever being quoted into the site. Watch
+   stage-by-stage progress in the terminal. The script creates a
+   `book/<slug>` branch off `main`, runs the pipeline, and commits the
+   generated JSON there — `main` is untouched.
 3. `astro dev`, open `/books/<slug>` locally (you're already on `book/<slug>`
    after the script finishes), read it over.
 4. If something's off (wrong chapter count, a claim that's not actually in
    the book, an awkward synopsis), **edit the JSON file directly** — it's
    plain data, easier to fix a field than to re-prompt and hope. Re-check in
-   `astro dev`, amend or add a commit on the branch as needed.
+   `astro dev`, amend or add a commit on the branch as needed. Once you
+   trust what's there, flip `"verified": false` to `true` in the same file —
+   it renders as a small badge, so future-you can tell at a glance which
+   books were actually reviewed versus raw, unchecked AI output.
 5. When you're satisfied, merge it: either a plain local merge
    (`git checkout main && git merge book/<slug>`), or, if you want to see it
    on the actual deployed site before merging, `git push -u origin

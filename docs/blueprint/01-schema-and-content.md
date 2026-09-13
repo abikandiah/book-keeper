@@ -52,6 +52,7 @@ export const bookSchema = z.object({
   isbn: z.string().optional(), // resolved via Open Library, not the LLM — see below
   tags: z.array(z.string()).min(1),
   date_added: z.string(), // ISO date, when it was added to the site
+  verified: z.boolean().default(false), // reader-flipped after review, never model output
   one_line_takeaway: z.string(),
   synopsis: z.string(), // 1-3 paragraphs
   chapters: z.array(chapterSchema).min(1),
@@ -111,6 +112,12 @@ for, and so you don't quietly redefine these later):
 - **`tags`** — free-form lowercase-kebab strings (e.g. `embedded-systems`,
   `statistics`, `psychology`). No fixed taxonomy for v1 — just be consistent
   with casing so tag pages group correctly.
+- **`verified`** — starts `false` on every generated book (set by
+  `validateNode`, never asked of the model). You flip it to `true` by hand,
+  as part of the existing draft-branch review step (see Part 5), once you've
+  actually read over the generated content and trust it. Renders as a small
+  badge on the book card and book page. `false` just means "not yet
+  reviewed," not "known wrong" — don't read anything more into its absence.
 - **`isbn`** (optional) — resolved by Part 2 via a direct Open Library API
   lookup, not asked of the LLM. Used to construct a cover-image URL at
   render time: `https://covers.openlibrary.org/b/isbn/<isbn>-M.jpg` (`-L`
@@ -137,6 +144,7 @@ Create this as a real file so Parts 3 and 4 have something to build against:
   "year": 2001,
   "tags": ["statistics", "philosophy", "finance", "decision-making"],
   "date_added": "2026-09-12",
+  "verified": false,
   "one_line_takeaway": "We systematically underestimate the role of luck and overfit stories to random outcomes.",
   "synopsis": "Taleb argues that randomness plays a far larger role in outcomes — especially in markets and careers — than we're willing to admit, and that our brains are wired to construct narratives that erase the role of luck after the fact. The book is less a statistics text than an extended argument for epistemic humility: surviving a risky strategy doesn't validate it, and the visible 'winners' we study are a survivorship-biased sample.",
   "chapters": [

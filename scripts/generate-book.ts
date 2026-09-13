@@ -86,6 +86,11 @@ const BookGenState = Annotation.Root({
 	// (validateNode). Fine to hold a raw Promise in state since checkpointing
 	// isn't used in v1 — nothing ever needs to serialize this.
 	isbnPromise: Annotation<Promise<string | undefined> | undefined>(),
+	// Raw text from --notes, if given. A steering signal for the Synthesis
+	// stage only — never persisted to the book JSON and never quoted
+	// verbatim in output (the reader's own notes may be messy fragments,
+	// not publishable prose). See buildSynthesisPrompt.
+	personalNotes: Annotation<string | undefined>(),
 	chapterTitles: Annotation<string[]>({ reducer: overwrite, default: () => [] }),
 	chapterIndex: Annotation<number>({ reducer: overwrite, default: () => 0 }),
 	totalChapters: Annotation<number>({ reducer: overwrite, default: () => 0 }),
@@ -234,7 +239,7 @@ async function synthesisNode(state: State): Promise<Partial<State>> {
 		.join('\n\n');
 
 	const results = await searchProvider.search(`"${state.title}" ${state.author ?? ''} themes summary`.trim(), 3);
-	const prompt = buildSynthesisPrompt(state.title, state.author, chaptersSummary, results);
+	const prompt = buildSynthesisPrompt(state.title, state.author, chaptersSummary, results, state.personalNotes);
 	const synthesis = await model.withStructuredOutput(synthesisSchema).invoke(prompt);
 
 	console.log('Synthesis complete.');
@@ -264,6 +269,9 @@ async function validateNode(state: State): Promise<Partial<State>> {
 		isbn,
 		tags: state.synthesis?.tags ?? [],
 		date_added: new Date().toISOString().slice(0, 10),
+		// Always starts false — flipped to true by hand once you've read over
+		// the generated content and trust it (see Part 5's review workflow).
+		verified: false,
 		one_line_takeaway: state.synthesis?.one_line_takeaway ?? '',
 		synopsis: state.synthesis?.synopsis ?? '',
 		chapters: sortedChapters,
@@ -413,13 +421,40 @@ const app = graph.compile();
 // ---------------------------------------------------------------------------
 // CLI entrypoint
 // ---------------------------------------------------------------------------
+// Pulls --notes <path> (a value-taking flag) out before the remaining args
+// are joined back into the title, and reads the file eagerly so a bad path
+// fails fast rather than partway through the pipeline.
+function parseArgs(argv: string[]): { title: string; force: boolean; personalNotes?: string } {
+	const args = [...argv];
+	const force = args.includes('--force');
+
+	const notesIndex = args.indexOf('--notes');
+	let personalNotes: string | undefined;
+	if (notesIndex !== -1) {
+		const notesPath = args[notesIndex + 1];
+		if (!notesPath) throw new Error('--notes requires a file path argument.');
+		personalNotes = fs.readFileSync(notesPath, 'utf-8');
+		args.splice(notesIndex, 2);
+	}
+
+	const title = args.filter((a) => a !== '--force').join(' ').trim();
+	return { title, force, personalNotes };
+}
+
 async function main() {
-	const rawArgs = process.argv.slice(2);
-	const force = rawArgs.includes('--force');
-	const title = rawArgs.filter((a) => a !== '--force').join(' ').trim();
+	let title: string;
+	let force: boolean;
+	let personalNotes: string | undefined;
+	try {
+		({ title, force, personalNotes } = parseArgs(process.argv.slice(2)));
+	} catch (err) {
+		console.error(err instanceof Error ? err.message : String(err));
+		process.exit(1);
+		return;
+	}
 
 	if (!title) {
-		console.error('Usage: pnpm run generate -- "Book Title" [--force]');
+		console.error('Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>]');
 		process.exit(1);
 		return;
 	}
@@ -429,7 +464,7 @@ async function main() {
 		model = createModel();
 		chapterLimit = pLimit(CHAPTER_CONCURRENCY);
 
-		await app.invoke({ title, force }, { recursionLimit: 50 });
+		await app.invoke({ title, force, personalNotes }, { recursionLimit: 50 });
 	} catch (err) {
 		console.error('\nGeneration failed:', err instanceof Error ? err.message : err);
 		process.exit(1);

@@ -28,6 +28,7 @@ const books = (await getCollection('books')).sort(sortByDateAddedDesc);
 							isbn={book.data.isbn}
 							tags={book.data.tags}
 							oneLineTakeaway={book.data.one_line_takeaway}
+							verified={book.data.verified}
 						/>
 					))}
 				</ul>

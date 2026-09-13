@@ -29,6 +29,11 @@ export const bookSchema = z.object({
 	isbn: z.string().optional(),
 	tags: z.array(z.string()).min(1),
 	date_added: z.string(), // ISO date, when it was added to the site
+	// Manually flipped to true by the reader after reviewing the generated
+	// content (part of the existing draft-branch review step, see Part 5's
+	// day-to-day workflow) — never set by the model. Absence/false just means
+	// "not yet reviewed," not "wrong."
+	verified: z.boolean().default(false),
 	one_line_takeaway: z.string(),
 	synopsis: z.string(), // 1-3 paragraphs
 	chapters: z.array(chapterSchema).min(1),
@@ -59,10 +64,11 @@ export const synthesisSchema = bookSchema.pick({
 // Stage 4 repair-loop output — every top-level field a repair call could
 // plausibly need to fix. Excludes `chapters` (already validated per-chapter
 // before Stage 4 ever runs, see Part 2's "Per-chapter validation"),
-// `date_added` (script-generated, never model output), and `isbn` (resolved
+// `date_added` (script-generated, never model output), `isbn` (resolved
 // via a direct API lookup, not model knowledge — asking the model to
-// "repair" it would just invite a hallucinated ISBN).
-export const repairableSchema = bookSchema.omit({ chapters: true, date_added: true, isbn: true });
+// "repair" it would just invite a hallucinated ISBN), and `verified`
+// (reader-controlled, never model output).
+export const repairableSchema = bookSchema.omit({ chapters: true, date_added: true, isbn: true, verified: true });
 
 export type Chapter = z.infer<typeof chapterSchema>;
 export type ChapterContent = z.infer<typeof chapterContentSchema>;

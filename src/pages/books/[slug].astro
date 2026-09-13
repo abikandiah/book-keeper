@@ -1,5 +1,6 @@
 ---
 import { getCollection, type CollectionEntry } from 'astro:content';
+import { Badge } from '@abumble/design-system/components/Badge';
 import Layout from '../../layouts/Layout.astro';
 import { ChapterBlock } from '../../components/ChapterBlock';
 import { CoverPlaceholder } from '../../components/CoverPlaceholder';
@@ -19,7 +20,8 @@ interface Props {
 }
 
 const { book } = Astro.props;
-const { title, author, year, isbn, tags, one_line_takeaway, synopsis, chapters, key_claims_for_review } = book.data;
+const { title, author, year, isbn, tags, verified, one_line_takeaway, synopsis, chapters, key_claims_for_review } =
+	book.data;
 const cover = coverUrl(isbn, 'L');
 const paragraphs = synopsis.split(/\n\n+/);
 ---
@@ -38,6 +40,11 @@ const paragraphs = synopsis.split(/\n\n+/);
 					<span class="article-meta">
 						<span>{author}</span>
 						{year && <span>{year}</span>}
+						{verified && (
+							<Badge variant="success" className="verified-badge">
+								Verified
+							</Badge>
+						)}
 					</span>
 					<div class="article-tags">
 						{tags.map((tag) => <TagPill tag={tag} />)}

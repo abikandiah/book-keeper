@@ -47,6 +47,7 @@ export function buildSynthesisPrompt(
 	author: string | undefined,
 	chaptersSummary: string,
 	results: SearchResult[],
+	personalNotes?: string,
 ): string {
 	return `You are writing the top-level summary for the non-fiction book "${bookTitle}"${author ? ` by ${author}` : ''}.
 
@@ -57,7 +58,23 @@ ${chaptersSummary}
 Here is additional web search context about the book's overall themes:
 
 ${formatSearchResults(results)}
+${
+	personalNotes
+		? `
+The reader who is generating this summary has also supplied their own rough,
+informal notes from actually reading this book. These notes are NOT source
+content: they may be fragments, shorthand, or poorly formatted, and must
+never be quoted or copied into your output verbatim. Use them only as a
+weighting signal — if the reader's notes dwell on a particular chapter, idea,
+or claim, treat that as evidence it deserves more prominence in the synopsis
+and key_claims_for_review than it might otherwise get. Write everything in
+your own clean, publishable prose regardless of how the notes are phrased.
 
+Reader's notes (raw, for weighting only — do not quote):
+${personalNotes}
+`
+		: ''
+}
 Synthesize from the chapter breakdown above (not just the raw search context) to produce:
 - one_line_takeaway: the single sentence you'd want if you only had five seconds — this is what appears on book list/cards
 - synopsis: 1-3 paragraphs covering the book's overall arc/thesis

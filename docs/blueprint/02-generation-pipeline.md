@@ -24,6 +24,18 @@ runs a multi-stage pipeline, writes a schema-valid JSON file to
 that stays a manual step for now (see Part 5). Reviewing, editing, and
 merging the branch is entirely up to you.
 
+Optionally: `pnpm run generate -- "Fooled by Randomness" --notes ./my-notes.txt`.
+`--notes <path>` reads a local text file of your own rough notes/highlights
+from actually reading the book and feeds it into the Synthesis stage prompt
+(see Stage 3) as a *weighting signal only* — it biases which claims/themes
+the model treats as important, it is never quoted or persisted. The notes
+file itself is never written into the book JSON or committed anywhere; it's
+a pure generation-time input, gone once the run finishes. This exists
+because generic AI-picked "most important claims" don't necessarily match
+what actually struck *you* when reading — the notes are a lightweight way to
+ground the summary in your own reading experience without turning your raw
+(possibly messy) notes into published site content.
+
 ## Why multiple stages instead of one prompt
 
 A single "summarize this book" prompt produces inconsistent structure across
@@ -378,12 +390,15 @@ object against `chapterSchema`, retrying locally on failure.
 **Input:** all chapter objects from Stage 2, sorted and formatted into a
 plain-text summary — the model synthesizes from what it just produced, not
 from the raw title again. **Search:** `"<title>" <author> themes summary`,
-top 3 results, as supporting context. **Job:** produce
-`one_line_takeaway`/`synopsis`/`tags`/`key_claims_for_review`, validated
-against `synthesisSchema`.
+top 3 results, as supporting context. If `--notes` was passed, the reader's
+raw notes are appended to the prompt as a weighting signal only (explicitly
+instructed: not source content, never quoted verbatim — see "Goal" above).
+**Job:** produce `one_line_takeaway`/`synopsis`/`tags`/`key_claims_for_review`,
+validated against `synthesisSchema`.
 
 ### Stage 4 — Assembly & validation
-Merge Stages 1-3 into one object and validate with `bookSchema` (imported
+Merge Stages 1-3 into one object — plus `verified: false`, always, never the
+model's to set (see Part 1) — and validate with `bookSchema` (imported
 from `src/content/schema.ts` — see the schema-location correction above).
 On failure: feed the Zod error back to the model in a repair call bound to
 `synthesisSchema` (chapters are already individually valid, so repair only

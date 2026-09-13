@@ -1,3 +1,4 @@
+import { Badge } from '@abumble/design-system/components/Badge';
 import { coverUrl } from '../lib/covers';
 import { CoverPlaceholder } from './CoverPlaceholder';
 import { TagPill } from './TagPill';
@@ -10,6 +11,7 @@ interface BookCardProps {
 	isbn?: string;
 	tags: string[];
 	oneLineTakeaway: string;
+	verified: boolean;
 }
 
 // Renders as a compact list row, not a boxed card — see Part 3's "Listing
@@ -17,7 +19,7 @@ interface BookCardProps {
 // stretched-link overlay (`.book-row-link::after`); the tag pills sit above
 // that overlay (`.book-row-tags` z-index) so they stay independently
 // clickable without nesting an <a> inside the row's <a>.
-export function BookCard({ slug, title, author, year, isbn, tags, oneLineTakeaway }: BookCardProps) {
+export function BookCard({ slug, title, author, year, isbn, tags, oneLineTakeaway, verified }: BookCardProps) {
 	const cover = coverUrl(isbn, 'M');
 
 	return (
@@ -37,6 +39,11 @@ export function BookCard({ slug, title, author, year, isbn, tags, oneLineTakeawa
 							{author}
 							{year ? `, ${year}` : ''}
 						</span>
+						{verified && (
+							<Badge variant="success" className="verified-badge">
+								Verified
+							</Badge>
+						)}
 					</div>
 					<p className="book-row-takeaway">{oneLineTakeaway}</p>
 					<div className="book-row-tags">
