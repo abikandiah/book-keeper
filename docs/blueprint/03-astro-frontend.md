@@ -13,6 +13,7 @@ and visual direction. See `00-INDEX.md` for full context if needed.
 | `/books/[slug]` | Full book page: header (with cover if available), synopsis, chapter-by-chapter breakdown, key claims section, a "Review key claims →" link to `/review/[slug]` (Part 4). |
 | `/tags/[tag]` | All books carrying that tag, same list layout as home. |
 | `/tags` | A plain alphabetical index of every tag in use (not a weighted cloud — see "Visual direction"), linking to each `/tags/[tag]`. |
+| `/disclaimer` | Added post-v1: a plain static page covering AI-generation/accuracy, non-affiliation with the books' authors/publishers, cover-image sourcing (Open Library), and non-commercial framing — linked from the footer nav alongside Home/Tags. Reuses `.content-page`/`.prose`; see "Visual direction" below for the `.page-heading-solo` note that applies to it. |
 
 Every page also sets its own `<title>` and `<meta name="description">` (book
 pages use `one_line_takeaway` as the description) — cheap, and it means a
@@ -79,8 +80,9 @@ one fresh. Concretely:
 
 - **`Layout.astro`** — shared shell: `<head>`, a fixed translucent header bar
   (`.site-header`/`.site-brand`/`.theme-toggle` from `global.css`, reused
-  near-verbatim from amumble's structure), nav (Home / Tags), footer, wraps
-  page content. The brand mark is `src/assets/logo.svg` (originally seeded
+  near-verbatim from amumble's structure), nav (Home / Tags), footer (see
+  its own note under "Visual direction" — nav grew a third link, Disclaimer,
+  post-v1), wraps page content. The brand mark is `src/assets/logo.svg` (originally seeded
   as `beekeeper-svgrepo-com.svg`, renamed once selected as the actual logo;
   the unused alternate `beehive-honey-svgrepo-com.svg` is still sitting in
   `src/assets/` if a different mark is ever wanted) — "Book Keeper" as a
@@ -126,18 +128,27 @@ one fresh. Concretely:
   Used in a loop on the book page.
 - Book page itself can be `src/pages/books/[slug].astro` directly rather than
   a separate component, since it's not reused elsewhere. Section order is
-  compressed-to-detailed, deliberately: header (title/cover/tags, plus
-  `one_line_takeaway` as a small italic line right in the header block —
-  v1 fetched this field but never rendered it on the page itself, which
-  missed the point of having it) → synopsis (no label — with everything
-  else this compact, "this paragraph is the synopsis" is self-evident from
-  position) → `key_claims_for_review` as a `<details open>` (open by
-  default, collapsible if wanted) rendering plain read-through prompt/
-  answer pairs, ending with the "Review key claims →" link to
-  `/review/[slug]` *inside* that same section (as its natural conclusion,
-  not a standalone interstitial between two list-like sections) → the full
-  `ChapterBlock` loop for whoever wants the detail. Shows a larger cover
-  next to the header if `isbn` resolved (`-L` size instead of `-M`).
+  compressed-to-detailed, deliberately: header (title/cover/tags, plus a
+  `verified` badge — see Part 1 — when the reader has flagged the book as
+  reviewed, plus `one_line_takeaway` as a small line right in the header
+  block, upright not italic — see "Visual direction" below) → synopsis (no
+  label — with everything else this compact, "this paragraph is the
+  synopsis" is self-evident from position) → a `.review-banner` — a
+  bordered "Test yourself on N key claims →" link to `/review/[slug]` —
+  → `key_claims_for_review` as a `<details>`, **collapsed** by default
+  (revised from v1's `open` default: with the review banner now leading,
+  showing every answer expanded by default meant scrolling past all of
+  them before ever reaching the banner, which defeats active recall — see
+  Part 4's whole reason for existing) rendering plain read-through prompt/
+  answer pairs → the full `ChapterBlock` loop for whoever wants the detail,
+  also collapsed by default. Shows a larger cover next to the header if
+  `isbn` resolved (`-L` size instead of `-M`).
+  An earlier revision also tried an in-page anchor "Contents" nav
+  (Synopsis/Key Claims/Chapters) under the header — removed again once both
+  list sections were collapsed by default, since the page got short enough
+  that the nav row was pure noise. Worth reconsidering only once a real
+  book has enough chapters that collapsed rows alone stop being fast to
+  scan.
 
 ### Listing layout: compact rows, not a card grid
 
@@ -157,17 +168,38 @@ This is a personal library/archive, not a marketing site or a SaaS dashboard
 The design system provides the concrete tokens (colors, spacing, type scale)
 — within that, aim for:
 
-- **Typography-led, not chrome-led.** Whatever the design system's body-text
-  styles are, favor generous line-height and a comfortable measure (line
-  length) for the synopsis/chapter prose — this is a reading surface first.
+- **Revised post-v1: "study guide," not "library/editorial."** v1 leaned
+  literary — italic serif pull-quotes for `core_claim`/`one_line_takeaway`,
+  a looser `line-height: 1.75` reading rhythm borrowed wholesale from
+  long-form prose. After actually using the site, that read as closer to a
+  GoodReads-style browsing site than a fast reference/study aid, which is
+  the project's actual job (see `00-INDEX.md`'s "one job" framing) — a
+  technical study guide is scanned for facts, not savored. Concretely
+  reverted: no italics on `core_claim`/`one_line_takeaway` (see below),
+  `.prose` tightened to `line-height: 1.6` with paragraph
+  `margin-bottom: 1em` (the last paragraph's own margin zeroed via
+  `.prose p:last-child`, so it doesn't stack with `.prose`'s own
+  `padding-bottom` and drift the gap to the next section off the page's
+  2.5rem rhythm — a real bug that shipped briefly), `.chapter-block`
+  padding tightened, `.key-claims` gap tightened. Still typography-led and
+  still a reading surface, just calibrated for skimming over savoring —
+  keep this in mind for any new page/section rather than defaulting back to
+  looser, more editorial spacing.
 - **Restrained use of the palette.** Even if the design system offers a full
   color set, lean on one or two accents at most here (e.g. for tag pills and
   the `core_claim` emphasis) — a busy multi-color result would fight the
   "calm library" feel regardless of how good the underlying tokens are.
 - **The `core_claim` per chapter should be visually distinct** from the
-  `key_points` bullets — e.g. a pull-quote treatment — since it's the one
-  line a returning reader most wants their eye to land on first when
-  skimming a chapter list.
+  `key_points` bullets — a left-border accent (not italic; tried and
+  reverted — italic serif read as a magazine pull-quote, which fought the
+  "study guide" register described above) since it's the one line a
+  returning reader most wants their eye to land on first when skimming a
+  chapter list. The book-level `one_line_takeaway`
+  in the page header got the same italic-removal treatment for the same
+  reason. `key_points` renders as a real bulleted `<ul>` — worth knowing
+  Tailwind's preflight strips `list-style` globally, so a plain `<ul>` with
+  no explicit `list-style` renders with no visible bullet markers at all;
+  `.chapter-points` sets `list-style: disc` back explicitly.
 - **Chapter list layout:** a vertical stack is fine and simplest; an
   accordion (collapsed by default, expand for `key_points`) is a nice later
   touch if chapter counts get long (e.g. the "All About Circuits" textbook
@@ -185,6 +217,25 @@ The design system provides the concrete tokens (colors, spacing, type scale)
   surface, not a shop shelf — a small thumbnail in the list rows, a
   slightly larger one next to the book-page header, never hero-sized or the
   visual focus of the page.
+- **`key_points` cap raised 6 → 10** (schema, generation prompt — see
+  Part 1/2) once the 6-item cap proved too tight for a genuinely dense
+  chapter (e.g. a textbook). Still capped, deliberately — an unbounded list
+  would break the "every book's page has an identical shape" guarantee
+  `00-INDEX.md` calls out as a core design principle.
+- **Page headings that are title-only** (no description line under them,
+  e.g. `/disclaimer`) use `.page-heading-solo` instead of the bare
+  `.page-heading` class — same block, tighter `margin-bottom` (1.5rem vs
+  2.5rem, sized to the title's own font-size rather than the default,
+  which is calibrated for a heading *with* a description line like Tags'
+  "N tags," see `.page-heading-solo`'s comment in `global.css`). Reach for
+  this on any future title-only static page rather than a one-off override.
+- **Footer** carries brand name, a one-line copyright + AI-generation/
+  accuracy notice, and nav (Home / Tags / Disclaimer) in a single balanced
+  row — a two-row version with the full disclaimer text split into its own
+  divided section was tried and reverted for reading as a heavier, more
+  "corporate legal footer" treatment than the rest of the site's plain,
+  personal tone; the full statement lives on `/disclaimer` instead, one tap
+  away, so the footer itself stays short.
 
 ## Explicitly out of scope for v1
 
