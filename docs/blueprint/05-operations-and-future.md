@@ -49,17 +49,12 @@ v1 was built wrong.
   Automating that tail end is a small addition once you're comfortable with
   the branch-based flow and just want one less manual command per book, not
   a sign the manual version was wrong.
-- **GitHub Actions automation.** `workflow_dispatch` triggered with a title
-  input, runs Part 2's script in CI instead of locally. A heavier lift than
-  the auto-push option above, and only worth it if running the script
-  locally ever becomes real friction — not before.
 - **Text-grounded generation.** Feed the actual PDF/EPUB (when you have one —
   e.g. your embedded systems textbooks) into the generation pipeline instead
   of relying on web search, for higher fidelity on technical books where
-  chapter-level accuracy matters more than for general non-fiction.
-- **Real spaced-repetition scheduling** (SM-2-style intervals/due dates) in
-  place of the v1 shuffled-deck review mode — see Part 4's "design for the
-  upgrade path" note; the data shape should already be compatible.
+  chapter-level accuracy matters more than for general non-fiction. This is
+  the one still-active "v2" item — real interest confirmed, just after v1
+  has actually been lived with for a while.
 - **Static search** via Pagefind (Astro-friendly, fully static, no backend)
   once there are enough books that tag-browsing alone isn't fast enough to
   find something.
@@ -84,6 +79,6 @@ v1 was built wrong.
 - [ ] Home, book detail, and tag pages render correctly for 2+ books
 - [ ] Review mode works across books and per-book, with basic last-reviewed
       persistence
-- [ ] Site is live on a Cloudflare Workers URL, connected to `main`
+- [x] Site is live on a Cloudflare Workers URL, connected to `main`
 - [ ] You've personally added at least one *real* book you've actually read
       and confirmed the summary is accurate enough to trust
