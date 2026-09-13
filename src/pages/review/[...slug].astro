@@ -27,6 +27,7 @@ const cards: ReviewCard[] = books.flatMap((book) =>
 	book.data.key_claims_for_review.map((claim) => ({
 		...claim,
 		bookTitle: book.data.title,
+		bookSlug: book.id,
 	})),
 );
 
@@ -40,6 +41,6 @@ const description = singleBook
 	<div class="content-page">
 		<h1 class="sr-only">{singleBook ? `Review — ${singleBook.data.title}` : 'Review'}</h1>
 		{singleBook && <BackLink href={`/books/${singleBook.id}`} label={`Back to ${singleBook.data.title}`} />}
-		<ReviewDeck client:load cards={cards} showSource={!singleBook} trackSlug={singleBook?.id} />
+		<ReviewDeck client:load cards={cards} showSource={!singleBook} />
 	</div>
 </Layout>

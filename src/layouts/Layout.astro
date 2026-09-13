@@ -10,6 +10,7 @@ interface Props {
 const { title, description } = Astro.props;
 const pathname = Astro.url.pathname;
 const isHome = pathname === '/';
+const isReviewSection = pathname === '/review' || pathname.startsWith('/review/');
 const isTagsSection = pathname === '/tags' || pathname.startsWith('/tags/');
 const isDisclaimer = pathname === '/disclaimer';
 const year = new Date().getFullYear();
@@ -74,6 +75,7 @@ const year = new Date().getFullYear();
 					</div>
 					<nav class="footer-nav">
 						<a href="/" class={isHome ? 'footer-nav-active' : ''}>Home</a>
+						<a href="/review" class={isReviewSection ? 'footer-nav-active' : ''}>Review</a>
 						<a href="/tags" class={isTagsSection ? 'footer-nav-active' : ''}>Tags</a>
 						<a href="/disclaimer" class={isDisclaimer ? 'footer-nav-active' : ''}>Disclaimer</a>
 					</nav>

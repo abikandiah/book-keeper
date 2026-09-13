@@ -856,9 +856,28 @@ code {
 	border-top: 1px solid var(--border);
 }
 
+/* Teaches the click-to-flip gesture on the card once per session — see
+   ReviewDeck's hasFlippedOnce. Quiet enough not to compete with the
+   prompt, gone entirely once the reader's flipped anything. */
+.review-card-hint {
+	margin: 0;
+	font-family: var(--font-ui);
+	font-size: var(--text-xs);
+	color: var(--muted-foreground);
+}
+
 .review-controls {
 	display: flex;
+	align-items: center;
+	justify-content: center;
 	gap: 0.75rem;
+}
+
+/* Larger than the button's own default text size — these are meant to
+   read as real "previous/next" affordances, not incidental glyphs. */
+.review-nav-arrow {
+	font-size: 1.25rem;
+	line-height: 1;
 }
 
 .review-empty {
