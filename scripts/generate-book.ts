@@ -19,7 +19,7 @@ import { createModel } from './lib/model';
 import { lookupIsbn } from './lib/openlibrary';
 import { buildChapterPrompt, buildOutlinePrompt, buildRepairPrompt, buildSynthesisPrompt } from './lib/prompts';
 import { checkPublishable, publishBook, slugify } from './lib/publish';
-import { GoogleCseProvider } from './search/google-cse/provider';
+import { TavilyProvider } from './search/tavily';
 import type { SearchProvider } from './search/types';
 
 try {
@@ -442,7 +442,7 @@ async function main() {
 	}
 
 	try {
-		searchProvider = new GoogleCseProvider(requireEnv('GOOGLE_CSE_API_KEY'), requireEnv('GOOGLE_CSE_CX'));
+		searchProvider = new TavilyProvider(requireEnv('TAVILY_API_KEY'));
 		model = createModel();
 		chapterLimit = pLimit(CHAPTER_CONCURRENCY);
 

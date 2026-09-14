@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Hardened wrapper around Dockerfile.generate — see
 # docs/blueprint/05-operations-and-future.md. Runs generation (network
-# calls, untrusted scraped-page parsing) inside an ephemeral, locked-down
-# container with no repo/git access; git branch+commit happens afterward,
-# on the host, via scripts/publish-book.ts.
+# calls, untrusted third-party content fed to an LLM) inside an ephemeral,
+# locked-down container with no repo/git access; git branch+commit happens
+# afterward, on the host, via scripts/publish-book.ts.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -56,8 +56,7 @@ pnpm exec tsx scripts/publish-book.ts --check-only "${publish_check_args[@]}"
 
 # Loaded into this shell so the needed vars can be passed through
 # explicitly below -- deliberately not `docker run --env-file .env`, which
-# would forward every var in .env (including TAVILY_API_KEY, which this
-# path never uses) into the container.
+# would forward every var in .env into the container.
 if [ -f .env ]; then
 	set -a
 	# shellcheck disable=SC1091
@@ -68,7 +67,7 @@ fi
 # Checked before the (potentially minutes-long, cold-cache) docker build
 # below, not after -- no point paying for an image build only to fail on a
 # millisecond-cheap missing-env-var check.
-for var in OPENROUTER_API_KEY LLM_BASE_URL LLM_MODEL GOOGLE_CSE_API_KEY GOOGLE_CSE_CX; do
+for var in OPENROUTER_API_KEY LLM_BASE_URL LLM_MODEL TAVILY_API_KEY; do
 	if [ -z "${!var:-}" ]; then
 		echo "Error: $var is not set (see .env.example)." >&2
 		exit 1
@@ -99,7 +98,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker_env_args=(-e OPENROUTER_API_KEY -e LLM_BASE_URL -e LLM_MODEL -e GOOGLE_CSE_API_KEY -e GOOGLE_CSE_CX)
+docker_env_args=(-e OPENROUTER_API_KEY -e LLM_BASE_URL -e LLM_MODEL -e TAVILY_API_KEY)
 if [ -n "${CHAPTER_CONCURRENCY:-}" ]; then
 	docker_env_args+=(-e CHAPTER_CONCURRENCY)
 fi

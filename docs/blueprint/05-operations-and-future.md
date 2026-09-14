@@ -43,13 +43,9 @@ v1 was built wrong.
 
 ## Sandboxed generation (recommended)
 
-Step 2's generation script now fetches and parses arbitrary third-party
-HTML server-side (`scripts/search/google-cse/extract.ts`, replacing Tavily
-to avoid its credit-card-on-file free tier) to enrich search results beyond
-Google CSE's thin snippets. SSRF and decompression-bomb guards are in place
-there, but a parser bug in the HTML-parsing libraries triggered by
-adversarial content is the closest thing to a real code-execution risk in
-this pipeline — worth containing by blast radius, not just by code review.
+Step 2's generation pipeline feeds untrusted third-party content (search
+results) into LLM prompts, and the response into Zod parsing and the rest
+of the graph — worth containing by blast radius, not just by code review.
 
 Run generation inside a locked-down, ephemeral container instead of
 directly on the host:
@@ -62,8 +58,8 @@ This builds `Dockerfile.generate` — a minimal image containing only
 `scripts/`, `src/content/schema.ts`, and installed dependencies, never the
 `.git` directory, `.env`, or anything else from the host — and runs it with
 a read-only root filesystem, all capabilities dropped, and memory/process
-limits, passing through only the five env vars generation actually needs
-(never `TAVILY_API_KEY`, unused on this path). The container has no git
+limits, passing through only the four env vars generation actually needs.
+The container has no git
 access at all: it writes the validated book JSON to a scratch output
 directory instead of committing anything, and once it exits,
 `scripts/publish-book.ts` runs on the host — outside the container, with no
@@ -75,8 +71,7 @@ workflow (steps 3-6 above) is unchanged either way.
 The plain `pnpm run generate -- "Book Title"` path (running directly on the
 host, no container) still works exactly as before, including its own
 git branch/commit at the end — it's a legitimate choice for anyone who's
-made their peace with that tradeoff, just not the default recommendation
-now that the pipeline fetches arbitrary third-party pages.
+made their peace with that tradeoff, just not the default recommendation.
 
 ## Future enhancements (explicitly not v1 — revisit only once v1 is solid)
 

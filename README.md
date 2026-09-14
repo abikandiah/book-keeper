@@ -11,7 +11,7 @@ good but not the specifics" into "here's the 2-minute refresher."
 
 ```
 pnpm install
-cp .env.example .env   # fill in OPENROUTER_API_KEY, GOOGLE_CSE_API_KEY, GOOGLE_CSE_CX
+cp .env.example .env   # fill in OPENROUTER_API_KEY and TAVILY_API_KEY
 pnpm dev
 ```
 
@@ -26,9 +26,9 @@ Generation also requires Docker (see below).
    go — informal is fine, they're never published.
 
 2. Generate it — always via the Docker sandbox, never the raw script
-   directly, since generation runs untrusted network calls (search results,
-   scraped pages fed to an LLM) and the sandbox is what keeps that away from
-   your repo and secrets (see `docs/blueprint/05-operations-and-future.md`):
+   directly, since generation feeds untrusted third-party content (search
+   results) into an LLM, and the sandbox is what keeps that away from your
+   repo and secrets (see `docs/blueprint/05-operations-and-future.md`):
 
    ```
    pnpm run generate:sandboxed -- "Fooled by Randomness"
@@ -92,8 +92,8 @@ are safe either way — they're files in this repo).
 
 Astro (static output) · React islands (only the review deck hydrates) ·
 `@abumble/design-system` (Tailwind + shadcn-ui) · LangGraph + OpenRouter +
-Google Custom Search for generation (sandboxed in Docker) · Cloudflare
-Workers for hosting.
+Tavily for generation (sandboxed in Docker) · Cloudflare Workers for
+hosting.
 
 ## More detail
 
