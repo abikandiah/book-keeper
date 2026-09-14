@@ -8,6 +8,15 @@ export function isWorkingTreeClean(): boolean {
 	return git(['status', '--porcelain']) === '';
 }
 
+export function isGitRepo(): boolean {
+	try {
+		git(['rev-parse', '--is-inside-work-tree']);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function branchExists(branch: string): boolean {
 	try {
 		git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);

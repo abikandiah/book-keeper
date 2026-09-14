@@ -54,9 +54,6 @@ if [ -n "$force" ]; then
 fi
 pnpm exec tsx scripts/publish-book.ts --check-only "${publish_check_args[@]}"
 
-echo "Building sandbox image..."
-docker build -f Dockerfile.generate -t book-keeper-generate .
-
 # Loaded into this shell so the needed vars can be passed through
 # explicitly below -- deliberately not `docker run --env-file .env`, which
 # would forward every var in .env (including TAVILY_API_KEY, which this
@@ -68,12 +65,18 @@ if [ -f .env ]; then
 	set +a
 fi
 
+# Checked before the (potentially minutes-long, cold-cache) docker build
+# below, not after -- no point paying for an image build only to fail on a
+# millisecond-cheap missing-env-var check.
 for var in OPENROUTER_API_KEY LLM_BASE_URL LLM_MODEL GOOGLE_CSE_API_KEY GOOGLE_CSE_CX; do
 	if [ -z "${!var:-}" ]; then
 		echo "Error: $var is not set (see .env.example)." >&2
 		exit 1
 	fi
 done
+
+echo "Building sandbox image..."
+docker build -f Dockerfile.generate -t book-keeper-generate .
 
 output_dir="$(pwd)/.generate-output"
 rm -rf "$output_dir"
@@ -87,9 +90,11 @@ cleanup() {
 	local exit_code=$?
 	if [ "$exit_code" -eq 0 ]; then
 		rm -rf "$output_dir"
-	else
+	elif [ -f "$output_dir/book.json" ]; then
 		echo "Generation output preserved at $output_dir (exit $exit_code)." >&2
 		echo "Fix the issue, then run: pnpm exec tsx scripts/publish-book.ts $output_dir/book.json${force:+ --force}" >&2
+	else
+		echo "Generation failed before producing output (exit $exit_code); nothing to preserve or replay." >&2
 	fi
 }
 trap cleanup EXIT

@@ -6,6 +6,8 @@
 // slow cover lookup should never block or break book generation, so any
 // failure (including a timeout) just resolves to `undefined`.
 
+import { fetchWithTimeout } from './fetch-timeout';
+
 const LOOKUP_TIMEOUT_MS = 8000;
 
 interface OpenLibrarySearchDoc {
@@ -78,19 +80,18 @@ export async function lookupIsbn(title: string, author?: string): Promise<string
 		const params = new URLSearchParams({ title, limit: '5', fields: 'title,isbn' });
 		if (author) params.set('author', author);
 
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
-		let res: Response;
+		const { response: res, clear } = await fetchWithTimeout(
+			`https://openlibrary.org/search.json?${params.toString()}`,
+			{},
+			LOOKUP_TIMEOUT_MS,
+		);
+		let data: OpenLibrarySearchResponse;
 		try {
-			res = await fetch(`https://openlibrary.org/search.json?${params.toString()}`, {
-				signal: controller.signal,
-			});
+			if (!res.ok) return undefined;
+			data = (await res.json()) as OpenLibrarySearchResponse;
 		} finally {
-			clearTimeout(timeout);
+			clear();
 		}
-		if (!res.ok) return undefined;
-
-		const data = (await res.json()) as OpenLibrarySearchResponse;
 		const match = data.docs?.find(
 			(doc) => Array.isArray(doc.isbn) && doc.isbn.length > 0 && titlesMatch(title, doc.title, Boolean(author)),
 		);

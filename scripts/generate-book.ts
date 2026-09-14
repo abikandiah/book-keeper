@@ -14,7 +14,7 @@ import {
 	type Repairable,
 	type Synthesis,
 } from '../src/content/schema';
-import { currentBranch } from './lib/git';
+import { currentBranch, isGitRepo } from './lib/git';
 import { createModel } from './lib/model';
 import { lookupIsbn } from './lib/openlibrary';
 import { buildChapterPrompt, buildOutlinePrompt, buildRepairPrompt, buildSynthesisPrompt } from './lib/prompts';
@@ -109,18 +109,24 @@ async function setupNode(state: State): Promise<Partial<State>> {
 		);
 	}
 
-	// In --emit-json mode this runs inside the sandboxed container, which has
-	// no .git at all — publishability (existing file/branch, clean tree) is
-	// entirely the host-side publish-book.ts's concern once it has the JSON.
-	if (emitJsonPath) {
+	// In --emit-json mode this may run inside the sandboxed container, which
+	// has no .git at all — publishability (existing file/branch, clean tree)
+	// is entirely the host-side publish-book.ts's concern there, and
+	// generate-sandboxed.sh already runs that check before starting the
+	// container. But --emit-json also works for direct, un-sandboxed use
+	// (see the flag's definition above), and there a .git is available with
+	// no other pre-check guaranteed to have run — so still check there,
+	// rather than letting a duplicate title only surface after a full paid
+	// LLM+search generation completes.
+	if (emitJsonPath && !isGitRepo()) {
 		console.log(`Generating "${state.title}" -> slug "${slug}" (sandboxed: emitting JSON, no git operations)`);
 		return { slug, originalBranch: '' };
 	}
 
 	checkPublishable(slug, state.force);
 
-	console.log(`Generating "${state.title}" -> slug "${slug}"`);
-	return { slug, originalBranch: currentBranch() };
+	console.log(`Generating "${state.title}" -> slug "${slug}"${emitJsonPath ? ' (emitting JSON, no git commit)' : ''}`);
+	return { slug, originalBranch: emitJsonPath ? '' : currentBranch() };
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,8 @@ import net from 'node:net';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 
+import { fetchWithTimeout } from '../../lib/fetch-timeout';
+
 // Best-effort page-content enrichment, same convention as
 // scripts/lib/openlibrary.ts's lookupIsbn: never throws, never hangs
 // indefinitely, and a failure here should never block or break book
@@ -30,17 +32,22 @@ const BLOCKED_HOSTNAMES = new Set(['localhost']);
 // change between this check and the actual fetch — full protection needs
 // an IP-pinning dispatcher, disproportionate effort for a hobby project's
 // search-enrichment step) but blocks the straightforward case: a search
-// result whose URL is, or resolves to, a private/loopback/link-local
-// address (including the 169.254.169.254 cloud metadata endpoint) rather
-// than a real public page.
+// result whose URL is, or resolves to, a private/loopback/link-local/
+// special-purpose address (including the 169.254.169.254 cloud metadata
+// endpoint) rather than a real public page.
 function isPrivateIPv4(ip: string): boolean {
 	const parts = ip.split('.').map(Number);
 	if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return true; // malformed — fail closed
-	const [a, b] = parts;
+	const [a, b, c] = parts;
 	if (a === 0 || a === 10 || a === 127) return true;
 	if (a === 169 && b === 254) return true;
 	if (a === 172 && b >= 16 && b <= 31) return true;
 	if (a === 192 && b === 168) return true;
+	if (a === 192 && b === 0 && c === 0) return true; // IETF protocol assignments (incl. NAT64/DNS64 192.0.0.1)
+	if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking, RFC 2544
+	if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2
+	if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3
+	if (a >= 224) return true; // multicast (224/4) and reserved/broadcast (240/4, 255.255.255.255)
 	if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT / shared address space
 	return false;
 }
@@ -109,35 +116,46 @@ async function readCapped(res: Response, maxBytes: number): Promise<string | und
 }
 
 export async function extractPageText(url: string): Promise<string | undefined> {
-	// One deadline covers fetch AND the body read below — clearing it as soon
-	// as fetch() resolves (i.e. once headers arrive) would leave the
-	// subsequent streaming read in readCapped() completely unguarded, so a
-	// server that sends headers promptly but then trickles bytes (or sends
-	// none at all) could hang extraction indefinitely despite this function's
-	// "never hangs" contract.
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 	try {
 		if (!(await isSafeUrl(url))) return undefined;
 
-		const res = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': USER_AGENT } });
-		if (!res.ok) return undefined;
+		// redirect: 'manual' so a redirect target is never fetched without
+		// going through isSafeUrl itself — isSafeUrl only validates the
+		// original URL, and an ordinary 3xx response (no DNS-rebinding tricks
+		// needed) would otherwise be followed straight past the guard to an
+		// unchecked destination like the cloud metadata endpoint or localhost.
+		// res.ok is false for the resulting opaque redirect response, so this
+		// just fails closed rather than resolving it.
+		const { response: res, clear } = await fetchWithTimeout(
+			url,
+			{ headers: { 'User-Agent': USER_AGENT }, redirect: 'manual' },
+			FETCH_TIMEOUT_MS,
+		);
+		// One deadline covers fetch AND the body read below — clearing it as
+		// soon as fetch() resolves (i.e. once headers arrive) would leave the
+		// subsequent streaming read in readCapped() completely unguarded, so a
+		// server that sends headers promptly but then trickles bytes (or sends
+		// none at all) could hang extraction indefinitely despite this
+		// function's "never hangs" contract.
+		try {
+			if (!res.ok) return undefined;
 
-		const contentType = res.headers.get('content-type') ?? '';
-		if (!contentType.includes('text/html')) return undefined;
+			const contentType = res.headers.get('content-type') ?? '';
+			if (!contentType.includes('text/html')) return undefined;
 
-		const html = await readCapped(res, MAX_RESPONSE_BYTES);
-		if (!html) return undefined;
+			const html = await readCapped(res, MAX_RESPONSE_BYTES);
+			if (!html) return undefined;
 
-		const { document } = parseHTML(html);
-		const article = new Readability(document).parse();
-		if (!article?.textContent) return undefined;
+			const { document } = parseHTML(html);
+			const article = new Readability(document).parse();
+			if (!article?.textContent) return undefined;
 
-		const collapsed = article.textContent.replace(/\s+/g, ' ').trim();
-		return collapsed.length > 0 ? collapsed.slice(0, MAX_CONTENT_LENGTH) : undefined;
+			const collapsed = article.textContent.replace(/\s+/g, ' ').trim();
+			return collapsed.length > 0 ? collapsed.slice(0, MAX_CONTENT_LENGTH) : undefined;
+		} finally {
+			clear();
+		}
 	} catch {
 		return undefined;
-	} finally {
-		clearTimeout(timeout);
 	}
 }
