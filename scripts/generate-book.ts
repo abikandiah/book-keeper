@@ -399,7 +399,10 @@ const app = graph.compile();
 // notes file eagerly so a bad path fails fast rather than partway through
 // the pipeline.
 function parseArgs(argv: string[]): { title: string; force: boolean; personalNotes?: string; emitJsonPath?: string } {
-	const args = [...argv];
+	// `pnpm run generate -- "Title"` forwards a literal `--` through to this
+	// script instead of stripping it (confirmed on pnpm 12.x) — dropped here
+	// so it doesn't end up folded into the title below.
+	const args = argv.filter((a) => a !== '--');
 	const force = args.includes('--force');
 
 	const notesIndex = args.indexOf('--notes');

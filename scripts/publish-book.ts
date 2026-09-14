@@ -19,8 +19,13 @@ import { checkPublishable, publishBook, slugify } from './lib/publish';
 type Args = { mode: 'check'; title: string; force: boolean } | { mode: 'publish'; jsonPath: string; force: boolean };
 
 function parseArgs(argv: string[]): Args {
-	const force = argv.includes('--force');
-	const rest = argv.filter((a) => a !== '--force');
+	// `pnpm run publish-book -- ...` forwards a literal `--` through to this
+	// script instead of stripping it (confirmed on pnpm 12.x) — dropped here
+	// alongside `--force` so it can't be mistaken for `--check-only` or a
+	// JSON path below.
+	const cleaned = argv.filter((a) => a !== '--');
+	const force = cleaned.includes('--force');
+	const rest = cleaned.filter((a) => a !== '--force');
 
 	if (rest[0] === '--check-only') {
 		const title = rest.slice(1).join(' ').trim();

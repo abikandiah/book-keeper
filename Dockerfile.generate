@@ -13,11 +13,13 @@ WORKDIR /app
 # Installed before app code is copied in, so editing scripts/ doesn't
 # invalidate this layer and force a full reinstall on every rebuild.
 COPY package.json pnpm-lock.yaml ./
-# Matches .devcontainer/Dockerfile's own install approach, rather than
-# corepack (which, with no "packageManager" field pinned in package.json,
-# would resolve whatever pnpm version corepack considers current at build
-# time instead of a known-good one).
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
+# Version pinned rather than corepack (which, with no "packageManager" field
+# in package.json, would resolve whatever pnpm version corepack considers
+# current at build time). package.json's "pnpm.onlyBuiltDependencies" is
+# what actually lets --frozen-lockfile succeed non-interactively below:
+# pnpm 10+ blocks dependency install/postinstall scripts by default, and
+# esbuild's install script is needed for tsx to run at all.
+RUN npm install -g pnpm@10 && pnpm install --frozen-lockfile
 
 COPY tsconfig.json ./
 COPY scripts/ ./scripts/

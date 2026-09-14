@@ -36,8 +36,8 @@
     "tailwindcss": "^4.3.3",
     "zod": "^4.6.3"
   },
-  "allowScripts": {
-    "esbuild": true
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

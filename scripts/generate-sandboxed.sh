@@ -18,6 +18,13 @@ notes_path=""
 title_parts=()
 while [ $# -gt 0 ]; do
 	case "$1" in
+	--)
+		# `pnpm run generate:sandboxed -- "Title"` forwards this literal `--`
+		# through to the script instead of stripping it (confirmed on pnpm
+		# 12.x) — without this case it falls into the title_parts catch-all
+		# below and corrupts the slug/title with a leading "--".
+		shift
+		;;
 	--force)
 		force="--force"
 		shift
