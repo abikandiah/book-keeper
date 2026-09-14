@@ -1,5 +1,8 @@
+import { OutputParserException } from '@langchain/core/output_parsers';
 import { classifyRateLimitError } from '@langchain/core/utils/async_caller';
 import { ChatOpenAI } from '@langchain/openai';
+
+import { log } from './log';
 
 // OpenRouter's free-tier per-minute cap (distinct from its daily cap — see
 // .env.example) is transient and self-resolving: waiting ~60s always clears
@@ -24,37 +27,75 @@ function shouldWaitForRateLimit(err: unknown): boolean {
 	return classification !== undefined && classification.action !== 'stop';
 }
 
-async function invokeWithRateLimitWait<T>(fn: () => Promise<T>): Promise<T> {
-	for (let attempt = 1; ; attempt++) {
+// A provider occasionally returns an empty/truncated completion body for no
+// discernible reason (confirmed directly: a repair-node call came back with
+// text `""`, which LangChain's structured-output parser can't JSON.parse and
+// reports as this exception) — a one-off glitch, not a sign the request
+// itself is malformed, so it's worth a couple of quick retries rather than
+// failing the whole multi-minute generation run over it. Distinct from the
+// rate-limit case above: no reason to believe a long wait helps here, so a
+// short fixed delay instead of the 60s rate-limit window.
+//
+// Narrowed to a genuinely empty/whitespace-only `llmOutput` (the raw text
+// StructuredOutputParser attached to the exception), not just the exception
+// type — OutputParserException is also thrown for a non-empty response that
+// fails JSON.parse or the zod schema. Retrying identically on *that* case
+// would just burn attempts masking a systemic prompt/schema mismatch instead
+// of letting it surface to the repair/critique loops that are actually
+// designed to fix it.
+const MAX_EMPTY_OUTPUT_RETRIES = 2;
+const EMPTY_OUTPUT_RETRY_WAIT_MS = 2_000;
+
+function isEmptyOutputParseFailure(err: unknown): boolean {
+	return err instanceof OutputParserException && (err.llmOutput ?? '').trim() === '';
+}
+
+async function invokeWithRetries<T>(fn: () => Promise<T>): Promise<T> {
+	let rateLimitAttempt = 0;
+	let emptyOutputAttempt = 0;
+	for (;;) {
 		try {
 			return await fn();
 		} catch (err) {
-			if (!shouldWaitForRateLimit(err) || attempt > MAX_RATE_LIMIT_WAITS) throw err;
-			// +/-10% jitter so multiple chapters hitting the same per-minute cap
-			// at once (CHAPTER_CONCURRENCY) don't all retry in exact lockstep and
-			// re-collide on the same window.
-			const waitMs = Math.round(RATE_LIMIT_WAIT_MS * (0.9 + Math.random() * 0.2));
-			console.log(
-				`  hit a per-minute rate limit — waiting ~${Math.round(waitMs / 1000)}s before retrying ` +
-					`(${attempt}/${MAX_RATE_LIMIT_WAITS})...`,
-			);
-			await new Promise((resolve) => setTimeout(resolve, waitMs));
+			if (shouldWaitForRateLimit(err) && rateLimitAttempt < MAX_RATE_LIMIT_WAITS) {
+				rateLimitAttempt++;
+				// +/-10% jitter so multiple chapters hitting the same per-minute cap
+				// at once (CHAPTER_CONCURRENCY) don't all retry in exact lockstep and
+				// re-collide on the same window.
+				const waitMs = Math.round(RATE_LIMIT_WAIT_MS * (0.9 + Math.random() * 0.2));
+				log(
+					`  hit a per-minute rate limit — waiting ~${Math.round(waitMs / 1000)}s before retrying ` +
+						`(${rateLimitAttempt}/${MAX_RATE_LIMIT_WAITS})...`,
+				);
+				await new Promise((resolve) => setTimeout(resolve, waitMs));
+				continue;
+			}
+			if (isEmptyOutputParseFailure(err) && emptyOutputAttempt < MAX_EMPTY_OUTPUT_RETRIES) {
+				emptyOutputAttempt++;
+				log(
+					`  got an empty/unparseable response from the model — retrying ` +
+						`(${emptyOutputAttempt}/${MAX_EMPTY_OUTPUT_RETRIES})...`,
+				);
+				await new Promise((resolve) => setTimeout(resolve, EMPTY_OUTPUT_RETRY_WAIT_MS));
+				continue;
+			}
+			throw err;
 		}
 	}
 }
 
-// Wraps `withStructuredOutput` so every `.invoke()` call it produces waits
-// out per-minute rate limits automatically. Applied once here, at model
+// Wraps `withStructuredOutput` so every `.invoke()` call it produces gets
+// this retry behavior automatically. Applied once here, at model
 // construction, rather than at each of generate-book.ts's call sites — a
 // future call site can't accidentally skip it, since there's no separate
 // step to remember.
-function withRateLimitWait(chatModel: ChatOpenAI): ChatOpenAI {
+function withRetries(chatModel: ChatOpenAI): ChatOpenAI {
 	const originalWithStructuredOutput = chatModel.withStructuredOutput.bind(chatModel);
 	chatModel.withStructuredOutput = ((...args: Parameters<typeof originalWithStructuredOutput>) => {
 		const runnable = originalWithStructuredOutput(...args);
 		const originalInvoke = runnable.invoke.bind(runnable);
 		runnable.invoke = ((...invokeArgs: Parameters<typeof originalInvoke>) =>
-			invokeWithRateLimitWait(() => originalInvoke(...invokeArgs))) as typeof runnable.invoke;
+			invokeWithRetries(() => originalInvoke(...invokeArgs))) as typeof runnable.invoke;
 		return runnable;
 	}) as typeof chatModel.withStructuredOutput;
 	return chatModel;
@@ -72,7 +113,7 @@ export function createModel(): ChatOpenAI {
 	if (!baseURL) throw new Error('LLM_BASE_URL is not set (see .env.example).');
 	if (!model) throw new Error('LLM_MODEL is not set (see .env.example).');
 
-	return withRateLimitWait(
+	return withRetries(
 		new ChatOpenAI({
 			apiKey,
 			model,

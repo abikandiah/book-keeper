@@ -17,6 +17,7 @@ import {
 	type Synthesis,
 } from '../src/content/schema';
 import { currentBranch, isGitRepo } from './lib/git';
+import { log, logError } from './lib/log';
 import { createModel } from './lib/model';
 import { lookupEditionByIsbn, lookupIsbn } from './lib/openlibrary';
 import {
@@ -183,13 +184,13 @@ async function setupNode(state: State): Promise<Partial<State>> {
 	// rather than letting a duplicate title only surface after a full paid
 	// LLM+search generation completes.
 	if (emitJsonPath && !isGitRepo()) {
-		console.log(`Generating "${state.title}" -> slug "${slug}" (sandboxed: emitting JSON, no git operations)`);
+		log(`Generating "${state.title}" -> slug "${slug}" (sandboxed: emitting JSON, no git operations)`);
 		return { slug, originalBranch: '' };
 	}
 
 	checkPublishable(slug, state.force);
 
-	console.log(`Generating "${state.title}" -> slug "${slug}"${emitJsonPath ? ' (emitting JSON, no git commit)' : ''}`);
+	log(`Generating "${state.title}" -> slug "${slug}"${emitJsonPath ? ' (emitting JSON, no git commit)' : ''}`);
 	return { slug, originalBranch: emitJsonPath ? '' : currentBranch() };
 }
 
@@ -229,7 +230,7 @@ async function generateOutlineCandidates(searchTitle: string): Promise<OutlineCa
 		throw new Error(`All ${OUTLINE_SEARCH_STRATEGIES.length} outline search strategies failed:\n${reasons.join('\n')}`);
 	}
 	if (candidates.length < OUTLINE_SEARCH_STRATEGIES.length) {
-		console.log(
+		log(
 			`  outline: ${OUTLINE_SEARCH_STRATEGIES.length - candidates.length}/${OUTLINE_SEARCH_STRATEGIES.length} ` +
 				`candidate search(es) failed — proceeding with ${candidates.length}.`,
 		);
@@ -261,13 +262,14 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 	// Attempt 1 runs unconditionally before the retry loop, so `consensus`
 	// always holds a real value below — never `undefined`, so no non-null
 	// assertions needed at any use site.
+	log('Searching for outline (3 independent searches + a consensus pass)...');
 	const firstCandidates = await generateOutlineCandidates(searchTitle);
 	let consensus = await model
 		.withStructuredOutput(outlineConsensusSchema)
 		.invoke(buildOutlineConsensusPrompt(searchTitle, firstCandidates));
 
 	for (let attempt = 2; consensus.agreement === 'split' && attempt <= MAX_OUTLINE_SPLIT_RETRIES + 1; attempt++) {
-		console.log(
+		log(
 			`  outline: split agreement (${consensus.notes ?? 'no reasoning given'}) — retrying with fresh searches.`,
 		);
 		const candidates = await generateOutlineCandidates(searchTitle);
@@ -280,7 +282,7 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 	const author = editionMeta?.author ?? consensus.author;
 	const year = editionMeta?.year ?? consensus.year;
 
-	console.log(
+	log(
 		`Found ${consensus.chapter_titles.length} chapters for "${consensus.title}"` +
 			`${author ? ` by ${author}` : ''}${year ? ` (${year})` : ''}` +
 			(consensus.agreement === 'unanimous'
@@ -373,7 +375,7 @@ async function chapterDetailNode(state: State): Promise<Partial<State>> {
 					continue;
 				}
 
-				console.log(`  chapter ${chapterIndex + 1}/${state.totalChapters} drafted: "${chapterTitle}"`);
+				log(`  chapter ${chapterIndex + 1}/${state.totalChapters} drafted: "${chapterTitle}"`);
 				return { chapters: [parsed.data] };
 			} catch (err) {
 				lastError = err instanceof Error ? err.message : String(err);
@@ -381,7 +383,7 @@ async function chapterDetailNode(state: State): Promise<Partial<State>> {
 		}
 
 		if (lastValidCandidate) {
-			console.log(
+			log(
 				`  chapter ${chapterIndex + 1}/${state.totalChapters} drafted: "${chapterTitle}" ` +
 					`(unresolved review concerns — worth a manual check: ${lastValidConcerns.join('; ')})`,
 			);
@@ -412,7 +414,7 @@ async function synthesisNode(state: State): Promise<Partial<State>> {
 	const prompt = buildSynthesisPrompt(state.title, state.author, chaptersSummary, results, state.personalNotes);
 	const synthesis = await model.withStructuredOutput(synthesisSchema).invoke(prompt);
 
-	console.log('Synthesis complete.');
+	log('Synthesis complete.');
 	return { synthesis };
 }
 
@@ -432,7 +434,7 @@ async function validateNode(state: State): Promise<Partial<State>> {
 	const isbnResult = await state.isbnPromise;
 	const isbn = isbnResult?.isbn;
 	const pageCount = isbnResult?.pageCount;
-	console.log(
+	log(
 		isbn
 			? `Found ISBN ${isbn}${pageCount ? `, ${pageCount} pages` : ''} (cover image available).`
 			: 'No ISBN found — book will render without a cover.',
@@ -457,12 +459,12 @@ async function validateNode(state: State): Promise<Partial<State>> {
 
 	const parsed = bookSchema.safeParse(candidate);
 	if (parsed.success) {
-		console.log('Validated against the books content schema.');
+		log('Validated against the books content schema.');
 		return { validationErrors: [], book: parsed.data };
 	}
 
 	const errors = parsed.error.issues.map(formatIssue);
-	console.log(`Validation failed (attempt ${state.retryCount + 1}): ${errors.join('; ')}`);
+	log(`Validation failed (attempt ${state.retryCount + 1}): ${errors.join('; ')}`);
 	return { validationErrors: errors };
 }
 
@@ -542,8 +544,8 @@ async function publishNode(state: State): Promise<Partial<State>> {
 async function emitNode(state: State): Promise<Partial<State>> {
 	const json = `${JSON.stringify(state.book, null, 2)}\n`;
 	fs.writeFileSync(emitJsonPath!, json);
-	console.log(`\nWrote validated book JSON to ${emitJsonPath}.`);
-	console.log('Run scripts/publish-book.ts on the host to commit it.');
+	log(`\nWrote validated book JSON to ${emitJsonPath}.`);
+	log('Run scripts/publish-book.ts on the host to commit it.');
 	return {};
 }
 
@@ -657,7 +659,7 @@ async function main() {
 
 		await app.invoke({ title, force, personalNotes, isbnOverride: isbn }, { recursionLimit: 50 });
 	} catch (err) {
-		console.error('\nGeneration failed:', err instanceof Error ? err.message : err);
+		logError(`\nGeneration failed: ${err instanceof Error ? err.message : err}`);
 		process.exit(1);
 	}
 }
