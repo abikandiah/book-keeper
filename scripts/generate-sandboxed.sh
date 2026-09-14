@@ -87,6 +87,12 @@ docker build -f Dockerfile.generate -t book-keeper-generate .
 output_dir="$(pwd)/.generate-output"
 rm -rf "$output_dir"
 mkdir -p "$output_dir"
+# World-writable so the container's fixed sandboxuser (uid 10001 — see
+# Dockerfile.generate, almost never your own host uid) can write its output
+# here; a bind mount doesn't remap ownership. Scoped to this one throwaway,
+# per-run scratch directory (deleted on success, gitignored otherwise), not
+# a broad permissions relaxation.
+chmod 777 "$output_dir"
 # Only cleaned up on success -- on failure (e.g. the repo changed state
 # between the preflight check above and this run, or publish-book.ts itself
 # fails) the already-completed generation is preserved instead of silently
