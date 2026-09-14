@@ -1,6 +1,10 @@
 packages:
   - '.'
+# esbuild's install script downloads its native binary — tsx needs it to run
+# at all. pnpm 11+ reads this here (package.json's older "pnpm.onlyBuiltDependencies"
+# field is silently ignored since then); kept there too since Dockerfile.generate
+# pins an older pnpm@10 for the sandboxed build.
 allowBuilds:
-  esbuild: false
+  esbuild: true
 minimumReleaseAgeExclude:
   - zod@4.6.3
