@@ -153,7 +153,7 @@ touch src/content/schema.ts   # the actual Zod schema — see Part 1/2
 # Model — via OpenRouter (supports Anthropic, OpenAI, Google, Mistral, etc.)
 OPENROUTER_API_KEY=
 LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_MODEL=google/gemma-4-31b-it:free
+LLM_MODEL=openrouter/free
 
 # Search — Tavily
 TAVILY_API_KEY=

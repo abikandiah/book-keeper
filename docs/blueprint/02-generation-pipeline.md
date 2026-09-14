@@ -185,9 +185,11 @@ Every stage/node depends only on the `SearchProvider` interface, never a
 concrete provider directly. Switching which one is active is one import +
 one instantiation line in `generate-book.ts`'s `main()`, nothing else.
 
-**On free-tier models:** `LLM_MODEL` can point at one of OpenRouter's
-`:free`-suffixed models (as in the `.env.example` default), making the
-pipeline's LLM cost genuinely $0. Trade-offs worth knowing: free models
+**On free-tier models:** `LLM_MODEL` can point at a specific `:free`-suffixed
+OpenRouter model, or at `openrouter/free` (the `.env.example` default) —
+OpenRouter's own auto-router across its free-model pool, which spreads load
+instead of hammering one model. Either way the pipeline's LLM cost is
+genuinely $0. Trade-offs worth knowing: free models
 typically have tighter per-minute rate limits (relevant now that chapters
 run concurrently — see the concurrency cap below) and can be less reliable
 with `withStructuredOutput` than a stronger paid model — if repair retries
@@ -242,7 +244,8 @@ gives you directly:
 default, with no built-in throttling. Wrap the actual network calls inside
 `chapterDetail` with `p-limit`, capped at **3-5 concurrent** (default 4, via
 `CHAPTER_CONCURRENCY`) — fast enough to matter on long books, conservative
-enough to survive the default free-tier model.
+enough to stay under typical free-tier per-minute limits. Lower it if the
+active model's limit is tighter than that.
 
 ### Per-chapter validation
 
