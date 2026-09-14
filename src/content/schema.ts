@@ -27,6 +27,9 @@ export const bookSchema = z.object({
 	// (https://covers.openlibrary.org/b/isbn/<isbn>-M.jpg). Absent when no
 	// match is found; the frontend must render fine without it.
 	isbn: z.string().optional(),
+	// Resolved alongside isbn (same Open Library lookup, see
+	// scripts/lib/openlibrary.ts) — absent whenever isbn is.
+	page_count: z.number().optional(),
 	tags: z.array(z.string()).min(1),
 	date_added: z.string(), // ISO date, when it was added to the site
 	// Manually flipped to true by the reader after reviewing the generated
@@ -64,11 +67,17 @@ export const synthesisSchema = bookSchema.pick({
 // Stage 4 repair-loop output — every top-level field a repair call could
 // plausibly need to fix. Excludes `chapters` (already validated per-chapter
 // before Stage 4 ever runs, see Part 2's "Per-chapter validation"),
-// `date_added` (script-generated, never model output), `isbn` (resolved
-// via a direct API lookup, not model knowledge — asking the model to
-// "repair" it would just invite a hallucinated ISBN), and `verified`
+// `date_added` (script-generated, never model output), `isbn`/`page_count`
+// (resolved via a direct API lookup, not model knowledge — asking the model
+// to "repair" them would just invite hallucinated values), and `verified`
 // (reader-controlled, never model output).
-export const repairableSchema = bookSchema.omit({ chapters: true, date_added: true, isbn: true, verified: true });
+export const repairableSchema = bookSchema.omit({
+	chapters: true,
+	date_added: true,
+	isbn: true,
+	page_count: true,
+	verified: true,
+});
 
 export type Chapter = z.infer<typeof chapterSchema>;
 export type ChapterContent = z.infer<typeof chapterContentSchema>;

@@ -20,8 +20,19 @@ interface Props {
 }
 
 const { book } = Astro.props;
-const { title, author, year, isbn, tags, verified, one_line_takeaway, synopsis, chapters, key_claims_for_review } =
-	book.data;
+const {
+	title,
+	author,
+	year,
+	isbn,
+	page_count,
+	tags,
+	verified,
+	one_line_takeaway,
+	synopsis,
+	chapters,
+	key_claims_for_review,
+} = book.data;
 const cover = coverUrl(isbn, 'L');
 const paragraphs = synopsis.split(/\n\n+/);
 ---
@@ -40,6 +51,7 @@ const paragraphs = synopsis.split(/\n\n+/);
 					<span class="article-meta">
 						<span>{author}</span>
 						{year && <span>{year}</span>}
+						{page_count != null && <span>{page_count} pages</span>}
 						{verified && (
 							<Badge variant="success" className="verified-badge">
 								Verified

@@ -70,6 +70,52 @@ function titlesMatch(queried: string, candidate: string | undefined, authorProvi
 	return authorProvided || shorter.length >= MIN_PREFIX_MATCH_LENGTH;
 }
 
+interface OpenLibraryBookData {
+	title?: string;
+	authors?: { name: string }[];
+	publish_date?: string;
+	number_of_pages?: number;
+}
+
+// Forward lookup: isbn -> Open Library's edition record. Used two ways: to
+// pull page_count once an isbn is known (either user-supplied via --isbn or
+// found by lookupIsbn's reverse search below), and, when the user supplies
+// --isbn upfront, to resolve this specific edition's own title/author so
+// generation searches target the exact published work rather than however
+// the reader happened to phrase the CLI title.
+export async function lookupEditionByIsbn(
+	isbn: string,
+): Promise<{ title?: string; author?: string; year?: number; pageCount?: number } | undefined> {
+	try {
+		const params = new URLSearchParams({ bibkeys: `ISBN:${isbn}`, format: 'json', jscmd: 'data' });
+		const { response: res, clear } = await fetchWithTimeout(
+			`https://openlibrary.org/api/books?${params.toString()}`,
+			{},
+			LOOKUP_TIMEOUT_MS,
+		);
+		let data: Record<string, OpenLibraryBookData>;
+		try {
+			if (!res.ok) return undefined;
+			data = (await res.json()) as Record<string, OpenLibraryBookData>;
+		} finally {
+			clear();
+		}
+
+		const record = data[`ISBN:${isbn}`];
+		if (!record) return undefined;
+
+		const yearMatch = record.publish_date?.match(/\d{4}/);
+		return {
+			title: record.title,
+			author: record.authors?.[0]?.name,
+			year: yearMatch ? Number(yearMatch[0]) : undefined,
+			pageCount: record.number_of_pages,
+		};
+	} catch {
+		return undefined;
+	}
+}
+
 export async function lookupIsbn(title: string, author?: string): Promise<string | undefined> {
 	try {
 		// `fields` is required explicitly — Open Library's default response

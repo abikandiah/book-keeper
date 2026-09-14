@@ -82,6 +82,80 @@ Synthesize from the chapter breakdown above (not just the raw search context) to
 - key_claims_for_review: 5-15 prompt/answer flashcard pairs — recall cues and their answers, phrased for spaced-recall review, covering the claims most worth remembering cold (not necessarily one per chapter)`;
 }
 
+export function buildOutlineCritiquePrompt(title: string, chapterTitles: string[], results: SearchResult[]): string {
+	return `You are fact-checking a drafted chapter list for the non-fiction book "${title}".
+
+Drafted chapter list:
+${chapterTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+Here is what web search turned up about this book:
+
+${formatSearchResults(results)}
+
+Judge whether this is the book's REAL, COMPLETE chapter/section list as actually
+published — not a generic or invented structure, and not front matter
+(foreword, introduction, preface, acknowledgments) or a loose thematic
+summary mistaken for the chapter list. A short list for a book the search
+results suggest is substantially longer is a red flag worth calling out
+explicitly.
+
+Return:
+- plausible: true only if this looks like the genuine, complete chapter list
+- concerns: specific problems if not plausible (empty array if plausible)`;
+}
+
+export function buildOutlineRepairPrompt(
+	title: string,
+	results: SearchResult[],
+	previousChapterTitles: string[],
+	concerns: string[],
+): string {
+	return `Your previous attempt to determine "${title}"'s chapter list was flagged as
+implausible on review.
+
+Previous chapter list:
+${previousChapterTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+Concerns raised:
+${concerns.join('\n')}
+
+Here is what web search turned up about this book:
+
+${formatSearchResults(results)}
+
+Determine the book's author, publication year, and its REAL chapter/section
+list, in order, as actually published — addressing the concerns above rather
+than repeating the same mistake. Return only what the search results
+support.`;
+}
+
+export function buildChapterCritiquePrompt(
+	bookTitle: string,
+	chapterTitle: string,
+	chapter: { key_points: string[]; core_claim: string },
+	results: SearchResult[],
+): string {
+	return `You are fact-checking a drafted chapter summary for the non-fiction book
+"${bookTitle}", chapter "${chapterTitle}".
+
+Drafted summary:
+- core_claim: ${chapter.core_claim}
+- key_points:
+${chapter.key_points.map((p) => `  - ${p}`).join('\n')}
+
+Here is what web search turned up about this chapter (may be thin):
+
+${formatSearchResults(results)}
+
+Judge whether this summary looks substantively grounded in this specific
+chapter — not generic filler that could apply to any chapter of any book on
+this topic, and not a claim contradicted by the search results.
+
+Return:
+- plausible: true unless the summary looks generic, ungrounded, or wrong
+- concerns: specific problems if not plausible (empty array if plausible)`;
+}
+
 export function buildRepairPrompt(previousOutput: unknown, errors: string[]): string {
 	return `Your previous output failed schema validation.
 

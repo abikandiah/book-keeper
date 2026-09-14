@@ -9,12 +9,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ $# -lt 1 ]; then
-	echo "Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>]" >&2
+	echo "Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>] [--isbn <isbn>]" >&2
 	exit 1
 fi
 
 force=""
 notes_path=""
+isbn=""
 title_parts=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -37,6 +38,14 @@ while [ $# -gt 0 ]; do
 		fi
 		shift 2
 		;;
+	--isbn)
+		isbn="${2:-}"
+		if [ -z "$isbn" ]; then
+			echo "Error: --isbn requires a value." >&2
+			exit 1
+		fi
+		shift 2
+		;;
 	*)
 		title_parts+=("$1")
 		shift
@@ -46,7 +55,7 @@ done
 
 title="${title_parts[*]}"
 if [ -z "$title" ]; then
-	echo "Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>]" >&2
+	echo "Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>] [--isbn <isbn>]" >&2
 	exit 1
 fi
 
@@ -120,6 +129,9 @@ docker_volume_args=(-v "$output_dir:/output")
 container_args=("$title" --emit-json /output/book.json)
 if [ -n "$force" ]; then
 	container_args+=(--force)
+fi
+if [ -n "$isbn" ]; then
+	container_args+=(--isbn "$isbn")
 fi
 if [ -n "$notes_path" ]; then
 	if [ ! -f "$notes_path" ]; then

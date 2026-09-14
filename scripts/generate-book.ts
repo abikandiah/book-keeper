@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { Annotation, END, START, Send, StateGraph } from '@langchain/langgraph';
 import pLimit from 'p-limit';
+import { z } from 'zod';
 
 import {
 	bookSchema,
@@ -16,11 +17,31 @@ import {
 } from '../src/content/schema';
 import { currentBranch, isGitRepo } from './lib/git';
 import { createModel } from './lib/model';
-import { lookupIsbn } from './lib/openlibrary';
-import { buildChapterPrompt, buildOutlinePrompt, buildRepairPrompt, buildSynthesisPrompt } from './lib/prompts';
+import { lookupEditionByIsbn, lookupIsbn } from './lib/openlibrary';
+import {
+	buildChapterCritiquePrompt,
+	buildChapterPrompt,
+	buildOutlineCritiquePrompt,
+	buildOutlinePrompt,
+	buildOutlineRepairPrompt,
+	buildRepairPrompt,
+	buildSynthesisPrompt,
+} from './lib/prompts';
 import { checkPublishable, publishBook, slugify } from './lib/publish';
 import { TavilyProvider } from './search/tavily';
-import type { SearchProvider } from './search/types';
+import type { SearchProvider, SearchResult } from './search/types';
+
+// Shared shape for both the outline- and chapter-level review passes below —
+// a second, independent model call judging the first's output before it's
+// accepted, rather than a single unchecked generation. Not full multi-
+// candidate consensus (generate N, vote) — a critic-then-bounded-retry gate
+// gets most of the reliability benefit for a fraction of the extra LLM
+// calls, which matters directly against free-tier rate/daily-quota limits.
+const critiqueSchema = z.object({
+	plausible: z.boolean(),
+	concerns: z.array(z.string()),
+});
+type Critique = z.infer<typeof critiqueSchema>;
 
 try {
 	process.loadEnvFile('.env');
@@ -30,6 +51,10 @@ try {
 
 const MAX_TOP_LEVEL_RETRIES = 3;
 const MAX_CHAPTER_LOCAL_RETRIES = 2;
+// One retry (two attempts total) — each attempt here costs two model calls
+// (draft + critique), not one, so this is deliberately lower than
+// MAX_CHAPTER_LOCAL_RETRIES for the same total-cost order of magnitude.
+const MAX_OUTLINE_REVIEW_RETRIES = 1;
 const CHAPTER_CONCURRENCY = Number(process.env.CHAPTER_CONCURRENCY) || 4;
 
 function requireEnv(name: string): string {
@@ -70,13 +95,17 @@ const BookGenState = Annotation.Root({
 	originalBranch: Annotation<string>({ reducer: overwrite, default: () => '' }),
 	author: Annotation<string | undefined>(),
 	year: Annotation<number | undefined>(),
+	// From --isbn, if given. Lets outlineNode resolve the exact edition's own
+	// title/author upfront and search against that instead of the reader's
+	// own paraphrase of the title.
+	isbnOverride: Annotation<string | undefined>(),
 	// A live Promise, not a resolved value — kicked off in outlineNode but
 	// deliberately not awaited there, so its network round-trip overlaps
 	// with the (much longer) parallel chapter fan-out instead of serializing
-	// in front of it. Only awaited where isbn is actually consumed
-	// (validateNode). Fine to hold a raw Promise in state since checkpointing
-	// isn't used in v1 — nothing ever needs to serialize this.
-	isbnPromise: Annotation<Promise<string | undefined> | undefined>(),
+	// in front of it. Only awaited where isbn/pageCount are actually
+	// consumed (validateNode). Fine to hold a raw Promise in state since
+	// checkpointing isn't used in v1 — nothing ever needs to serialize this.
+	isbnPromise: Annotation<Promise<{ isbn?: string; pageCount?: number } | undefined> | undefined>(),
 	// Raw text from --notes, if given. A steering signal for the Synthesis
 	// stage only — never persisted to the book JSON and never quoted
 	// verbatim in output (the reader's own notes may be messy fragments,
@@ -133,27 +162,82 @@ async function setupNode(state: State): Promise<Partial<State>> {
 // Stage 1 — Outline
 // ---------------------------------------------------------------------------
 async function outlineNode(state: State): Promise<Partial<State>> {
-	const results = await searchProvider.search(`"${state.title}" chapter list table of contents`, 5);
-	const prompt = buildOutlinePrompt(state.title, results);
-	const outline = await model.withStructuredOutput(outlineSchema).invoke(prompt);
+	// --isbn pins the search to this exact edition's own published title
+	// (e.g. avoiding ambiguity between translations/editions) rather than
+	// however the reader phrased the CLI title. Its author/year — a direct
+	// lookup — also override the model's own guess below, once drafted.
+	// Never throws; a lookup miss just means no accuracy boost, not a
+	// failure.
+	let searchTitle = state.title;
+	let editionMeta: Awaited<ReturnType<typeof lookupEditionByIsbn>>;
+	if (state.isbnOverride) {
+		editionMeta = await lookupEditionByIsbn(state.isbnOverride);
+		if (editionMeta?.title) searchTitle = editionMeta.title;
+	}
+
+	// A second, independent model call judges each drafted chapter list
+	// before it's accepted — see critiqueSchema's comment above. Re-searches
+	// on each retry rather than just re-asking the model to "fix" the same
+	// list from nothing: the observed failure mode (front matter/themes
+	// mistaken for the real chapter list) is a sourcing problem as much as a
+	// reasoning one. Attempt 1 runs unconditionally before the retry loop,
+	// so `outline`/`results`/`critique` always hold real values below —
+	// never `undefined`, so no non-null assertions needed at any use site.
+	let results = await searchProvider.search(`"${searchTitle}" chapter list table of contents`, 5);
+	let outline = await model.withStructuredOutput(outlineSchema).invoke(buildOutlinePrompt(searchTitle, results));
+	let critique = await model
+		.withStructuredOutput(critiqueSchema)
+		.invoke(buildOutlineCritiquePrompt(searchTitle, outline.chapter_titles, results));
+	console.log(
+		critique.plausible
+			? '  outline review: looks good (attempt 1)'
+			: `  outline review: flagged (attempt 1): ${critique.concerns.join('; ')}`,
+	);
+
+	for (let attempt = 2; !critique.plausible && attempt <= MAX_OUTLINE_REVIEW_RETRIES + 1; attempt++) {
+		results = await searchProvider.search(`"${searchTitle}" chapter list table of contents`, 5);
+		outline = await model
+			.withStructuredOutput(outlineSchema)
+			.invoke(buildOutlineRepairPrompt(searchTitle, results, outline.chapter_titles, critique.concerns));
+		critique = await model
+			.withStructuredOutput(critiqueSchema)
+			.invoke(buildOutlineCritiquePrompt(searchTitle, outline.chapter_titles, results));
+		console.log(
+			critique.plausible
+				? `  outline review: looks good (attempt ${attempt})`
+				: `  outline review: flagged (attempt ${attempt}): ${critique.concerns.join('; ')}`,
+		);
+	}
+
+	// A direct ISBN lookup beats the model's own guess when one's available.
+	const author = editionMeta?.author ?? outline.author;
+	const year = editionMeta?.year ?? outline.year;
 
 	console.log(
 		`Found ${outline.chapter_titles.length} chapters for "${outline.title}"` +
-			`${outline.author ? ` by ${outline.author}` : ''}${outline.year ? ` (${outline.year})` : ''}`,
+			`${author ? ` by ${author}` : ''}${year ? ` (${year})` : ''}` +
+			(critique.plausible ? '' : ' (unresolved review concerns — worth a manual check)'),
 	);
 
 	// Resolved via a direct Open Library API lookup, not the model — see
-	// scripts/lib/openlibrary.ts. Deliberately NOT awaited here: isbn isn't
-	// consumed until validateNode (Stage 4), so kicking this off without
-	// blocking lets its round-trip overlap with the parallel chapter
-	// fan-out instead of serializing in front of it. Never throws;
-	// `undefined` just means no cover image, handled gracefully downstream.
-	const isbnPromise = lookupIsbn(outline.title, outline.author);
+	// scripts/lib/openlibrary.ts. Deliberately NOT awaited here: isbn/
+	// pageCount aren't consumed until validateNode (Stage 4), so kicking
+	// this off without blocking lets its round-trip overlap with the
+	// parallel chapter fan-out instead of serializing in front of it. Never
+	// throws; `undefined` fields just mean no cover image/page count,
+	// handled gracefully downstream.
+	const isbnPromise = state.isbnOverride
+		? Promise.resolve({ isbn: state.isbnOverride, pageCount: editionMeta?.pageCount })
+		: lookupIsbn(outline.title, author).then(async (isbn) => {
+				if (!isbn) return undefined;
+				const meta = await lookupEditionByIsbn(isbn);
+				return { isbn, pageCount: meta?.pageCount };
+			});
 
 	return {
 		title: outline.title,
-		author: outline.author,
-		year: outline.year,
+		author,
+		year,
 		isbnPromise,
 		chapterTitles: outline.chapter_titles,
 		totalChapters: outline.chapter_titles.length,
@@ -187,6 +271,15 @@ async function chapterDetailNode(state: State): Promise<Partial<State>> {
 
 		let lastError = '';
 		let lastAttempt: unknown = { chapterTitle }; // only used as repair-prompt context before a first real draft exists
+		// Schema-valid candidates are kept even when critique-flagged: a
+		// critique failure is a quality signal, not proof the content is
+		// unusable, unlike a schema-validation failure. Falling back to the
+		// last schema-valid draft once retries are exhausted means a
+		// spuriously repeated critique flag degrades one chapter's quality
+		// instead of throwing and discarding the whole book generation
+		// (including every other chapter already completed).
+		let lastValidCandidate: Chapter | undefined;
+		let lastValidConcerns: string[] = [];
 		for (let attempt = 0; attempt <= MAX_CHAPTER_LOCAL_RETRIES; attempt++) {
 			const prompt = attempt === 0 ? basePrompt : buildRepairPrompt(lastAttempt, [lastError]);
 			try {
@@ -194,15 +287,38 @@ async function chapterDetailNode(state: State): Promise<Partial<State>> {
 				const candidate = { number: chapterIndex + 1, title: chapterTitle, ...draft };
 				lastAttempt = candidate;
 				const parsed = chapterSchema.safeParse(candidate);
-				if (parsed.success) {
-					console.log(`  chapter ${chapterIndex + 1}/${state.totalChapters} drafted: "${chapterTitle}"`);
-					return { chapters: [parsed.data] };
+				if (!parsed.success) {
+					lastError = parsed.error.issues.map(formatIssue).join('; ');
+					continue;
 				}
-				lastError = parsed.error.issues.map(formatIssue).join('; ');
+
+				// A second, independent model call judging the draft before it's
+				// accepted — see critiqueSchema's comment above.
+				const critique = await model
+					.withStructuredOutput(critiqueSchema)
+					.invoke(buildChapterCritiquePrompt(state.title, chapterTitle, parsed.data, results));
+				lastValidCandidate = parsed.data;
+				if (!critique.plausible) {
+					lastError = `Content review: ${critique.concerns.join('; ')}`;
+					lastValidConcerns = critique.concerns;
+					continue;
+				}
+
+				console.log(`  chapter ${chapterIndex + 1}/${state.totalChapters} drafted: "${chapterTitle}"`);
+				return { chapters: [parsed.data] };
 			} catch (err) {
 				lastError = err instanceof Error ? err.message : String(err);
 			}
 		}
+
+		if (lastValidCandidate) {
+			console.log(
+				`  chapter ${chapterIndex + 1}/${state.totalChapters} drafted: "${chapterTitle}" ` +
+					`(unresolved review concerns — worth a manual check: ${lastValidConcerns.join('; ')})`,
+			);
+			return { chapters: [lastValidCandidate] };
+		}
+
 		throw new Error(
 			`Chapter "${chapterTitle}" failed validation after ${MAX_CHAPTER_LOCAL_RETRIES + 1} attempts: ${lastError}`,
 		);
@@ -244,14 +360,21 @@ async function validateNode(state: State): Promise<Partial<State>> {
 	// Kicked off (not awaited) back in outlineNode, so its round-trip has
 	// been overlapping with the chapter fan-out + synthesis this whole
 	// time — awaiting it here is normally instant, not a fresh wait.
-	const isbn = await state.isbnPromise;
-	console.log(isbn ? `Found ISBN ${isbn} (cover image available).` : 'No ISBN found — book will render without a cover.');
+	const isbnResult = await state.isbnPromise;
+	const isbn = isbnResult?.isbn;
+	const pageCount = isbnResult?.pageCount;
+	console.log(
+		isbn
+			? `Found ISBN ${isbn}${pageCount ? `, ${pageCount} pages` : ''} (cover image available).`
+			: 'No ISBN found — book will render without a cover.',
+	);
 
 	const candidate = {
 		title: state.title,
 		author: state.author,
 		year: state.year,
 		isbn,
+		page_count: pageCount,
 		tags: state.synthesis?.tags ?? [],
 		date_added: new Date().toISOString().slice(0, 10),
 		// Always starts false — flipped to true by hand once you've read over
@@ -276,14 +399,15 @@ async function validateNode(state: State): Promise<Partial<State>> {
 
 async function repairNode(state: State): Promise<Partial<State>> {
 	// Bound to repairableSchema (every top-level field except `chapters`,
-	// `date_added`, and `isbn`) rather than just synthesisSchema —
-	// validateNode's `bookSchema` check covers title/author/year too (e.g.
-	// an outline that came back with no determinable author), and a
-	// synthesis-only repair could never fix a failure in one of those
-	// fields, burning all retries on an unfixable error. `isbn` is
-	// deliberately left untouched here — it came from a direct API lookup,
-	// not the model, so it stays whatever outlineNode resolved (possibly
-	// undefined) regardless of what else needed repairing.
+	// `date_added`, `isbn`, and `page_count`) rather than just
+	// synthesisSchema — validateNode's `bookSchema` check covers
+	// title/author/year too (e.g. an outline that came back with no
+	// determinable author), and a synthesis-only repair could never fix a
+	// failure in one of those fields, burning all retries on an unfixable
+	// error. `isbn`/`page_count` are deliberately left untouched here — they
+	// came from a direct API lookup, not the model, so they stay whatever
+	// outlineNode resolved (possibly undefined) regardless of what else
+	// needed repairing.
 	//
 	// The explicit `: Partial<Repairable>` annotation on `candidate` is
 	// deliberate, not decorative: it's what makes `repairableSchema` and
@@ -398,7 +522,9 @@ const app = graph.compile();
 // before the remaining args are joined back into the title, and reads the
 // notes file eagerly so a bad path fails fast rather than partway through
 // the pipeline.
-function parseArgs(argv: string[]): { title: string; force: boolean; personalNotes?: string; emitJsonPath?: string } {
+function parseArgs(
+	argv: string[],
+): { title: string; force: boolean; personalNotes?: string; emitJsonPath?: string; isbn?: string } {
 	// `pnpm run generate -- "Title"` forwards a literal `--` through to this
 	// script instead of stripping it (confirmed on pnpm 12.x) — dropped here
 	// so it doesn't end up folded into the title below.
@@ -422,16 +548,25 @@ function parseArgs(argv: string[]): { title: string; force: boolean; personalNot
 		args.splice(emitJsonIndex, 2);
 	}
 
+	const isbnIndex = args.indexOf('--isbn');
+	let isbn: string | undefined;
+	if (isbnIndex !== -1) {
+		isbn = args[isbnIndex + 1];
+		if (!isbn) throw new Error('--isbn requires a value.');
+		args.splice(isbnIndex, 2);
+	}
+
 	const title = args.filter((a) => a !== '--force').join(' ').trim();
-	return { title, force, personalNotes, emitJsonPath };
+	return { title, force, personalNotes, emitJsonPath, isbn };
 }
 
 async function main() {
 	let title: string;
 	let force: boolean;
 	let personalNotes: string | undefined;
+	let isbn: string | undefined;
 	try {
-		({ title, force, personalNotes, emitJsonPath } = parseArgs(process.argv.slice(2)));
+		({ title, force, personalNotes, emitJsonPath, isbn } = parseArgs(process.argv.slice(2)));
 	} catch (err) {
 		console.error(err instanceof Error ? err.message : String(err));
 		process.exit(1);
@@ -439,7 +574,9 @@ async function main() {
 	}
 
 	if (!title) {
-		console.error('Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>] [--emit-json <path>]');
+		console.error(
+			'Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>] [--emit-json <path>] [--isbn <isbn>]',
+		);
 		process.exit(1);
 		return;
 	}
@@ -449,7 +586,7 @@ async function main() {
 		model = createModel();
 		chapterLimit = pLimit(CHAPTER_CONCURRENCY);
 
-		await app.invoke({ title, force, personalNotes }, { recursionLimit: 50 });
+		await app.invoke({ title, force, personalNotes, isbnOverride: isbn }, { recursionLimit: 50 });
 	} catch (err) {
 		console.error('\nGeneration failed:', err instanceof Error ? err.message : err);
 		process.exit(1);
