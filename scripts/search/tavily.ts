@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchResult } from './types';
+import type { SearchOptions, SearchProvider, SearchResult } from './types';
 
 const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
 
@@ -15,7 +15,7 @@ interface TavilyResponse {
 export class TavilyProvider implements SearchProvider {
 	constructor(private apiKey: string) {}
 
-	async search(query: string, maxResults = 5): Promise<SearchResult[]> {
+	async search(query: string, maxResults = 5, options?: SearchOptions): Promise<SearchResult[]> {
 		const res = await fetch(TAVILY_SEARCH_URL, {
 			method: 'POST',
 			headers: {
@@ -26,6 +26,8 @@ export class TavilyProvider implements SearchProvider {
 				query,
 				max_results: maxResults,
 				search_depth: 'basic',
+				...(options?.excludeDomains?.length ? { exclude_domains: options.excludeDomains } : {}),
+				...(options?.includeDomains?.length ? { include_domains: options.includeDomains } : {}),
 			}),
 		});
 

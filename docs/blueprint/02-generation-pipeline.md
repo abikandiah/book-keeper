@@ -150,8 +150,13 @@ export interface SearchResult {
   content: string; // cleaned text/snippet, not raw HTML
 }
 
+export interface SearchOptions {
+  excludeDomains?: string[]; // both hard filters, not quality tuning
+  includeDomains?: string[];
+}
+
 export interface SearchProvider {
-  search(query: string, maxResults?: number): Promise<SearchResult[]>;
+  search(query: string, maxResults?: number, options?: SearchOptions): Promise<SearchResult[]>;
 }
 ```
 
@@ -360,9 +365,20 @@ See Part 5.
   and shouldn't carry unrelated uncommitted changes onto it.
 
 ### Stage 1 — Outline
-**Search:** `"<title>" chapter list table of contents`, top 5 results.
-**Job:** determine author, year, and the real chapter/section list, in
-order — output validated against `outlineSchema`.
+**Search:** `"<title>" chapter list table of contents`, run three times
+concurrently with different domain filters — general web (excluding
+`books.google.com`, whose preview pages showed a partial chapter list with
+nothing marking it incomplete), bookseller listings (Amazon, Barnes &
+Noble, etc.), and library catalogs (Open Library, WorldCat, LOC).
+**Job:** each of the three searches drafts its own candidate
+`{ title, author, year, chapter_titles }` (validated against
+`outlineSchema`), then a fourth model call (`outlineConsensusSchema`)
+reconciles all three — given each candidate's own search results, not just
+its drafted list, so it can catch a candidate that misread its own source,
+not only one that drafted from thin evidence. A `"split"` verdict (no clear
+consensus) gets one bounded retry with a fresh round of searches; anything
+else is accepted as-is. See `generateOutlineCandidates`/`outlineNode` in
+`scripts/generate-book.ts`.
 
 **Cover lookup (not model output):** after the outline call, look up an ISBN
 via `scripts/lib/openlibrary.ts`'s `lookupIsbn(title, author)` — a direct

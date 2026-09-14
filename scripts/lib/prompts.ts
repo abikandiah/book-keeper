@@ -1,3 +1,4 @@
+import type { Outline } from '../../src/content/schema';
 import type { SearchResult } from '../search/types';
 
 export function formatSearchResults(results: SearchResult[]): string {
@@ -82,51 +83,52 @@ Synthesize from the chapter breakdown above (not just the raw search context) to
 - key_claims_for_review: 5-15 prompt/answer flashcard pairs — recall cues and their answers, phrased for spaced-recall review, covering the claims most worth remembering cold (not necessarily one per chapter)`;
 }
 
-export function buildOutlineCritiquePrompt(title: string, chapterTitles: string[], results: SearchResult[]): string {
-	return `You are fact-checking a drafted chapter list for the non-fiction book "${title}".
-
-Drafted chapter list:
-${chapterTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-
-Here is what web search turned up about this book:
-
-${formatSearchResults(results)}
-
-Judge whether this is the book's REAL, COMPLETE chapter/section list as actually
-published — not a generic or invented structure, and not front matter
-(foreword, introduction, preface, acknowledgments) or a loose thematic
-summary mistaken for the chapter list. A short list for a book the search
-results suggest is substantially longer is a red flag worth calling out
-explicitly.
-
-Return:
-- plausible: true only if this looks like the genuine, complete chapter list
-- concerns: specific problems if not plausible (empty array if plausible)`;
+export interface OutlineCandidate {
+	label: string;
+	outline: Outline;
+	results: SearchResult[];
 }
 
-export function buildOutlineRepairPrompt(
-	title: string,
-	results: SearchResult[],
-	previousChapterTitles: string[],
-	concerns: string[],
-): string {
-	return `Your previous attempt to determine "${title}"'s chapter list was flagged as
-implausible on review.
+export function buildOutlineConsensusPrompt(title: string, candidates: OutlineCandidate[]): string {
+	const rendered = candidates
+		.map((c, i) => {
+			const o = c.outline;
+			return (
+				`Candidate ${i + 1} — from ${c.label}:\n` +
+				`Title: ${o.title}${o.author ? `\nAuthor: ${o.author}` : ''}${o.year ? `\nYear: ${o.year}` : ''}\n` +
+				`Chapter list (${o.chapter_titles.length}):\n${o.chapter_titles.map((t, j) => `  ${j + 1}. ${t}`).join('\n')}\n\n` +
+				`Search results this candidate was drafted from:\n${formatSearchResults(c.results)}`
+			);
+		})
+		.join('\n\n---\n\n');
 
-Previous chapter list:
-${previousChapterTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+	return `You are reconciling ${candidates.length} independently-researched candidate
+chapter lists for the non-fiction book "${title}" — each drafted from a
+different search strategy (general web, bookseller listings, library
+catalogs), so they may disagree.
 
-Concerns raised:
-${concerns.join('\n')}
+${rendered}
 
-Here is what web search turned up about this book:
+Determine the single, correct, real chapter/section list as actually
+published, along with the author and publication year. Read each
+candidate's own search results, not just its drafted list — a candidate's
+draft can misread or omit chapters that were actually present in its own
+search results, and two candidates can independently reach a similar-looking
+but still-wrong list if their sources are both thin. Prefer whichever
+candidates' actual source material agrees, not just whichever drafted lists
+happen to look similar. A lone outlier — especially one far shorter than the
+others, which often means it's missing chapters or mistaking front matter
+(foreword, introduction, preface) for real ones — should generally be
+distrusted unless its own search results are clearly more complete/specific
+than the rest. A candidate with empty or near-empty search results just
+means that search strategy found nothing useful for this book — ignore it
+rather than treating it as evidence the book is short.
 
-${formatSearchResults(results)}
-
-Determine the book's author, publication year, and its REAL chapter/section
-list, in order, as actually published — addressing the concerns above rather
-than repeating the same mistake. Return only what the search results
-support.`;
+Return:
+- title, author, year
+- chapter_titles: the reconciled, real chapter list, in order
+- agreement: "unanimous" if the candidates with real data agreed, "majority" if most did, "split" if there was no clear consensus
+- notes: brief reasoning — required unless agreement is "unanimous"`;
 }
 
 export function buildChapterCritiquePrompt(
@@ -147,13 +149,18 @@ Here is what web search turned up about this chapter (may be thin):
 
 ${formatSearchResults(results)}
 
-Judge whether this summary looks substantively grounded in this specific
-chapter — not generic filler that could apply to any chapter of any book on
-this topic, and not a claim contradicted by the search results.
+Judge only whether this summary is fabricated or contradicted by the search
+results — a specific claim invented outright, or one the search results
+directly dispute. Writing style, genericness, or how thoroughly it covers
+the chapter are NOT grounds to flag it; those are subjective judgment calls,
+out of scope here. Thin search results are common and expected (chapter-
+level web coverage is often sparse) — a summary that leans on general
+knowledge of the book rather than the search snippets is fine, not a
+violation.
 
 Return:
-- plausible: true unless the summary looks generic, ungrounded, or wrong
-- concerns: specific problems if not plausible (empty array if plausible)`;
+- plausible: true unless there's a specific fabricated or contradicted claim
+- concerns: the specific fabricated/contradicted claim(s) if not plausible (empty array if plausible)`;
 }
 
 export function buildRepairPrompt(previousOutput: unknown, errors: string[]): string {

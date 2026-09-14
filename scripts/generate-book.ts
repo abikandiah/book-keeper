@@ -12,6 +12,7 @@ import {
 	synthesisSchema,
 	type Book,
 	type Chapter,
+	type Outline,
 	type Repairable,
 	type Synthesis,
 } from '../src/content/schema';
@@ -21,27 +22,65 @@ import { lookupEditionByIsbn, lookupIsbn } from './lib/openlibrary';
 import {
 	buildChapterCritiquePrompt,
 	buildChapterPrompt,
-	buildOutlineCritiquePrompt,
+	buildOutlineConsensusPrompt,
 	buildOutlinePrompt,
-	buildOutlineRepairPrompt,
 	buildRepairPrompt,
 	buildSynthesisPrompt,
+	type OutlineCandidate,
 } from './lib/prompts';
 import { checkPublishable, publishBook, slugify } from './lib/publish';
 import { TavilyProvider } from './search/tavily';
 import type { SearchProvider, SearchResult } from './search/types';
 
-// Shared shape for both the outline- and chapter-level review passes below —
-// a second, independent model call judging the first's output before it's
-// accepted, rather than a single unchecked generation. Not full multi-
-// candidate consensus (generate N, vote) — a critic-then-bounded-retry gate
-// gets most of the reliability benefit for a fraction of the extra LLM
-// calls, which matters directly against free-tier rate/daily-quota limits.
+// Chapter-level review: a second, independent model call judging a drafted
+// chapter's factual grounding before it's accepted. Deliberately narrow —
+// see buildChapterCritiquePrompt — flags only fabricated/contradicted
+// claims, not subjective style/depth, so it isn't burning retries on
+// judgment calls that don't actually matter.
 const critiqueSchema = z.object({
 	plausible: z.boolean(),
 	concerns: z.array(z.string()),
 });
 type Critique = z.infer<typeof critiqueSchema>;
+
+// Outline-level review is consensus, not critique — see outlineNode. A
+// single model critiquing its own draft against the same search results it
+// was drafted from can't catch a wrong-but-consistent draft (confirmed
+// directly: a Google Books preview fooled both a draft and its own critique
+// into agreeing on a truncated chapter list, since both were judging against
+// the same partial source). Three independently-sourced candidates, then one
+// judge call reconciling them, actually gives the judge different evidence
+// to cross-check against.
+const outlineConsensusSchema = z.object({
+	title: z.string(),
+	author: z.string().optional(),
+	year: z.number().optional(),
+	chapter_titles: z.array(z.string()).min(1),
+	agreement: z.enum(['unanimous', 'majority', 'split']),
+	notes: z.string().optional(),
+});
+
+interface OutlineSearchStrategy {
+	label: string;
+	maxResults: number;
+	excludeDomains?: string[];
+	includeDomains?: string[];
+}
+
+const OUTLINE_SEARCH_STRATEGIES: OutlineSearchStrategy[] = [
+	// books.google.com preview pages only show a partial chapter list, with
+	// nothing marking them as incomplete — the specific source that caused
+	// the failure above.
+	{ label: 'general web search', maxResults: 8, excludeDomains: ['books.google.com'] },
+	// Product/listing pages that tend to show a real table of contents.
+	{
+		label: 'bookseller listings',
+		maxResults: 5,
+		includeDomains: ['amazon.com', 'barnesandnoble.com', 'bookshop.org', 'thriftbooks.com', 'abebooks.com'],
+	},
+	// Library catalog metadata, often including a structured TOC field.
+	{ label: 'library catalogs', maxResults: 5, includeDomains: ['openlibrary.org', 'worldcat.org', 'loc.gov'] },
+];
 
 try {
 	process.loadEnvFile('.env');
@@ -51,10 +90,6 @@ try {
 
 const MAX_TOP_LEVEL_RETRIES = 3;
 const MAX_CHAPTER_LOCAL_RETRIES = 2;
-// One retry (two attempts total) — each attempt here costs two model calls
-// (draft + critique), not one, so this is deliberately lower than
-// MAX_CHAPTER_LOCAL_RETRIES for the same total-cost order of magnitude.
-const MAX_OUTLINE_REVIEW_RETRIES = 1;
 const CHAPTER_CONCURRENCY = Number(process.env.CHAPTER_CONCURRENCY) || 4;
 
 function requireEnv(name: string): string {
@@ -161,6 +196,54 @@ async function setupNode(state: State): Promise<Partial<State>> {
 // ---------------------------------------------------------------------------
 // Stage 1 — Outline
 // ---------------------------------------------------------------------------
+// Three independently-sourced candidates run concurrently — not a dynamic
+// fan-out (always exactly 3, known upfront), so plain Promise.allSettled
+// here rather than modeling them as separate LangGraph Send-dispatched
+// nodes, which earns its keep for genuinely dynamic work like the chapter
+// fan-out below, not a fixed-arity concurrent step. allSettled (not
+// Promise.all) so one strategy's failure doesn't discard the other two
+// already-successful candidates — proceeds on any 1+ successes, only
+// throwing if all three failed.
+async function generateOutlineCandidates(searchTitle: string): Promise<OutlineCandidate[]> {
+	const settled = await Promise.allSettled(
+		OUTLINE_SEARCH_STRATEGIES.map(async (strategy): Promise<OutlineCandidate> => {
+			const results = await searchProvider.search(
+				`"${searchTitle}" chapter list table of contents`,
+				strategy.maxResults,
+				{ excludeDomains: strategy.excludeDomains, includeDomains: strategy.includeDomains },
+			);
+			const outline = await model.withStructuredOutput(outlineSchema).invoke(buildOutlinePrompt(searchTitle, results));
+			return { label: strategy.label, outline, results };
+		}),
+	);
+
+	const candidates = settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+	if (candidates.length === 0) {
+		const reasons = settled
+			.map((r, i) => {
+				if (r.status !== 'rejected') return null;
+				const message = r.reason instanceof Error ? r.reason.message : String(r.reason);
+				return `${OUTLINE_SEARCH_STRATEGIES[i].label}: ${message}`;
+			})
+			.filter((r): r is string => r !== null);
+		throw new Error(`All ${OUTLINE_SEARCH_STRATEGIES.length} outline search strategies failed:\n${reasons.join('\n')}`);
+	}
+	if (candidates.length < OUTLINE_SEARCH_STRATEGIES.length) {
+		console.log(
+			`  outline: ${OUTLINE_SEARCH_STRATEGIES.length - candidates.length}/${OUTLINE_SEARCH_STRATEGIES.length} ` +
+				`candidate search(es) failed — proceeding with ${candidates.length}.`,
+		);
+	}
+	return candidates;
+}
+
+// Bounded to one retry, and only on a genuine "split" verdict — a "majority"
+// result already reflects reasonable confidence, not worth spending another
+// full round of searches on. A fresh round (new searches, not re-judging
+// the same evidence) gives the retry an actual chance at a different
+// outcome, rather than asking the same judge to re-decide from nothing new.
+const MAX_OUTLINE_SPLIT_RETRIES = 1;
+
 async function outlineNode(state: State): Promise<Partial<State>> {
 	// --isbn pins the search to this exact edition's own published title
 	// (e.g. avoiding ambiguity between translations/editions) rather than
@@ -175,48 +258,34 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 		if (editionMeta?.title) searchTitle = editionMeta.title;
 	}
 
-	// A second, independent model call judges each drafted chapter list
-	// before it's accepted — see critiqueSchema's comment above. Re-searches
-	// on each retry rather than just re-asking the model to "fix" the same
-	// list from nothing: the observed failure mode (front matter/themes
-	// mistaken for the real chapter list) is a sourcing problem as much as a
-	// reasoning one. Attempt 1 runs unconditionally before the retry loop,
-	// so `outline`/`results`/`critique` always hold real values below —
-	// never `undefined`, so no non-null assertions needed at any use site.
-	let results = await searchProvider.search(`"${searchTitle}" chapter list table of contents`, 5);
-	let outline = await model.withStructuredOutput(outlineSchema).invoke(buildOutlinePrompt(searchTitle, results));
-	let critique = await model
-		.withStructuredOutput(critiqueSchema)
-		.invoke(buildOutlineCritiquePrompt(searchTitle, outline.chapter_titles, results));
-	console.log(
-		critique.plausible
-			? '  outline review: looks good (attempt 1)'
-			: `  outline review: flagged (attempt 1): ${critique.concerns.join('; ')}`,
-	);
+	// Attempt 1 runs unconditionally before the retry loop, so `consensus`
+	// always holds a real value below — never `undefined`, so no non-null
+	// assertions needed at any use site.
+	const firstCandidates = await generateOutlineCandidates(searchTitle);
+	let consensus = await model
+		.withStructuredOutput(outlineConsensusSchema)
+		.invoke(buildOutlineConsensusPrompt(searchTitle, firstCandidates));
 
-	for (let attempt = 2; !critique.plausible && attempt <= MAX_OUTLINE_REVIEW_RETRIES + 1; attempt++) {
-		results = await searchProvider.search(`"${searchTitle}" chapter list table of contents`, 5);
-		outline = await model
-			.withStructuredOutput(outlineSchema)
-			.invoke(buildOutlineRepairPrompt(searchTitle, results, outline.chapter_titles, critique.concerns));
-		critique = await model
-			.withStructuredOutput(critiqueSchema)
-			.invoke(buildOutlineCritiquePrompt(searchTitle, outline.chapter_titles, results));
+	for (let attempt = 2; consensus.agreement === 'split' && attempt <= MAX_OUTLINE_SPLIT_RETRIES + 1; attempt++) {
 		console.log(
-			critique.plausible
-				? `  outline review: looks good (attempt ${attempt})`
-				: `  outline review: flagged (attempt ${attempt}): ${critique.concerns.join('; ')}`,
+			`  outline: split agreement (${consensus.notes ?? 'no reasoning given'}) — retrying with fresh searches.`,
 		);
+		const candidates = await generateOutlineCandidates(searchTitle);
+		consensus = await model
+			.withStructuredOutput(outlineConsensusSchema)
+			.invoke(buildOutlineConsensusPrompt(searchTitle, candidates));
 	}
 
 	// A direct ISBN lookup beats the model's own guess when one's available.
-	const author = editionMeta?.author ?? outline.author;
-	const year = editionMeta?.year ?? outline.year;
+	const author = editionMeta?.author ?? consensus.author;
+	const year = editionMeta?.year ?? consensus.year;
 
 	console.log(
-		`Found ${outline.chapter_titles.length} chapters for "${outline.title}"` +
+		`Found ${consensus.chapter_titles.length} chapters for "${consensus.title}"` +
 			`${author ? ` by ${author}` : ''}${year ? ` (${year})` : ''}` +
-			(critique.plausible ? '' : ' (unresolved review concerns — worth a manual check)'),
+			(consensus.agreement === 'unanimous'
+				? ''
+				: ` (${consensus.agreement} agreement among candidates — ${consensus.notes ?? 'no reasoning given'})`),
 	);
 
 	// Resolved via a direct Open Library API lookup, not the model — see
@@ -228,19 +297,19 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 	// handled gracefully downstream.
 	const isbnPromise = state.isbnOverride
 		? Promise.resolve({ isbn: state.isbnOverride, pageCount: editionMeta?.pageCount })
-		: lookupIsbn(outline.title, author).then(async (isbn) => {
+		: lookupIsbn(consensus.title, author).then(async (isbn) => {
 				if (!isbn) return undefined;
 				const meta = await lookupEditionByIsbn(isbn);
 				return { isbn, pageCount: meta?.pageCount };
 			});
 
 	return {
-		title: outline.title,
+		title: consensus.title,
 		author,
 		year,
 		isbnPromise,
-		chapterTitles: outline.chapter_titles,
-		totalChapters: outline.chapter_titles.length,
+		chapterTitles: consensus.chapter_titles,
+		totalChapters: consensus.chapter_titles.length,
 	};
 }
 
