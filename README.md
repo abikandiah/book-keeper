@@ -11,22 +11,27 @@ good but not the specifics" into "here's the 2-minute refresher."
 
 ```
 pnpm install
-cp .env.example .env   # fill in OPENROUTER_API_KEY and TAVILY_API_KEY
+cp .env.example .env   # fill in OPENROUTER_API_KEY, GOOGLE_CSE_API_KEY, GOOGLE_CSE_CX
 pnpm dev
 ```
 
 `pnpm dev` binds to `0.0.0.0` by default, which matters if you're running
 inside a devcontainer (see `AGENTS.md`/`CLAUDE.md` for why).
 
+Generation also requires Docker (see below).
+
 ## Adding a book
 
 1. Finish a book. Optionally jot down a few rough notes/highlights as you
    go — informal is fine, they're never published.
 
-2. Generate it:
+2. Generate it — always via the Docker sandbox, never the raw script
+   directly, since generation runs untrusted network calls (search results,
+   scraped pages fed to an LLM) and the sandbox is what keeps that away from
+   your repo and secrets (see `docs/blueprint/05-operations-and-future.md`):
 
    ```
-   pnpm run generate -- "Fooled by Randomness"
+   pnpm run generate:sandboxed -- "Fooled by Randomness"
    ```
 
    Have notes from step 1? Pass them along — they steer which claims the
@@ -34,12 +39,14 @@ inside a devcontainer (see `AGENTS.md`/`CLAUDE.md` for why).
    into the site:
 
    ```
-   pnpm run generate -- "Fooled by Randomness" --notes ./my-notes.txt
+   pnpm run generate:sandboxed -- "Fooled by Randomness" --notes ./my-notes.txt
    ```
 
-   This creates a `book/<slug>` branch off `main`, runs the pipeline (title
-   → outline → per-chapter detail → synthesis → validation), and commits
-   the generated JSON there. `main` stays untouched.
+   This runs the pipeline (title → outline → per-chapter detail → synthesis
+   → validation) inside a locked-down, read-only, no-git-access container,
+   then — once the sandbox has produced a validated `book.json` — creates a
+   `book/<slug>` branch off `main` on the host and commits it there. `main`
+   stays untouched.
 
 3. Preview it — `pnpm dev` and open `/books/<slug>` (you're already on
    `book/<slug>` after the script finishes).
@@ -85,7 +92,8 @@ are safe either way — they're files in this repo).
 
 Astro (static output) · React islands (only the review deck hydrates) ·
 `@abumble/design-system` (Tailwind + shadcn-ui) · LangGraph + OpenRouter +
-Tavily for generation · Cloudflare Workers for hosting.
+Google Custom Search for generation (sandboxed in Docker) · Cloudflare
+Workers for hosting.
 
 ## More detail
 
