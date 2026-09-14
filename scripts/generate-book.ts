@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { Annotation, END, START, Send, StateGraph } from '@langchain/langgraph';
 import pLimit from 'p-limit';
 
@@ -15,18 +14,12 @@ import {
 	type Repairable,
 	type Synthesis,
 } from '../src/content/schema';
-import {
-	branchExists,
-	checkoutBranch,
-	commitFile,
-	createAndCheckoutBranch,
-	currentBranch,
-	isWorkingTreeClean,
-} from './lib/git';
+import { currentBranch } from './lib/git';
 import { createModel } from './lib/model';
 import { lookupIsbn } from './lib/openlibrary';
 import { buildChapterPrompt, buildOutlinePrompt, buildRepairPrompt, buildSynthesisPrompt } from './lib/prompts';
-import { TavilyProvider } from './search/tavily';
+import { checkPublishable, publishBook, slugify } from './lib/publish';
+import { GoogleCseProvider } from './search/google-cse/provider';
 import type { SearchProvider } from './search/types';
 
 try {
@@ -38,16 +31,6 @@ try {
 const MAX_TOP_LEVEL_RETRIES = 3;
 const MAX_CHAPTER_LOCAL_RETRIES = 2;
 const CHAPTER_CONCURRENCY = Number(process.env.CHAPTER_CONCURRENCY) || 4;
-const BOOKS_DIR = 'src/content/books';
-
-function slugify(title: string): string {
-	return title
-		.toLowerCase()
-		.normalize('NFKD')
-		.replace(/[\u0300-\u036f]/g, '') // strip combining diacritics after NFKD decomposition
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/(^-|-$)/g, '');
-}
 
 function requireEnv(name: string): string {
 	const value = process.env[name];
@@ -66,6 +49,14 @@ function formatIssue(issue: { path: PropertyKey[]; message: string }): string {
 let searchProvider: SearchProvider;
 let model: ReturnType<typeof createModel>;
 let chapterLimit: ReturnType<typeof pLimit>;
+
+// Set from --emit-json in main(). When present, the graph ends at `emit`
+// (write the validated book JSON to this path) instead of `publish` (git
+// branch/commit) — see setupNode/emitNode and the "Graph wiring" section
+// below. This is the entrypoint scripts/generate-sandboxed.sh's Docker
+// image uses; it works equally well un-sandboxed for anyone who just wants
+// the JSON without a git side-effect.
+let emitJsonPath: string | undefined;
 
 // LangGraph's `default` option only applies alongside an explicit `reducer` —
 // there's no "just take the default" shorthand, so this is "last write wins"
@@ -118,27 +109,15 @@ async function setupNode(state: State): Promise<Partial<State>> {
 		);
 	}
 
-	const filePath = path.join(BOOKS_DIR, `${slug}.json`);
-	const branch = `book/${slug}`;
-	const branchAlreadyExists = branchExists(branch);
+	// In --emit-json mode this runs inside the sandboxed container, which has
+	// no .git at all — publishability (existing file/branch, clean tree) is
+	// entirely the host-side publish-book.ts's concern once it has the JSON.
+	if (emitJsonPath) {
+		console.log(`Generating "${state.title}" -> slug "${slug}" (sandboxed: emitting JSON, no git operations)`);
+		return { slug, originalBranch: '' };
+	}
 
-	if (!state.force) {
-		if (fs.existsSync(filePath)) {
-			throw new Error(`${filePath} already exists. Pass --force to regenerate it.`);
-		}
-		if (branchAlreadyExists) {
-			throw new Error(`Branch "${branch}" already exists. Pass --force to proceed anyway.`);
-		}
-	} else if (branchAlreadyExists) {
-		console.warn(
-			`Branch "${branch}" already exists — --force will reset it to this run, discarding any commits currently on it.`,
-		);
-	}
-	if (!isWorkingTreeClean()) {
-		throw new Error(
-			'Working tree is not clean. Commit or stash pending changes before generating a book — Stage 5 creates and commits to a new branch.',
-		);
-	}
+	checkPublishable(slug, state.force);
 
 	console.log(`Generating "${state.title}" -> slug "${slug}"`);
 	return { slug, originalBranch: currentBranch() };
@@ -349,39 +328,23 @@ function failNode(state: State): never {
 // Stage 5 — Publish to a draft branch (commit only — no push, see Part 5)
 // ---------------------------------------------------------------------------
 async function publishNode(state: State): Promise<Partial<State>> {
-	const branch = `book/${state.slug}`;
-	const filePath = path.join(BOOKS_DIR, `${state.slug}.json`);
+	publishBook(state.book!, state.slug, state.originalBranch, state.title);
+	return {};
+}
 
-	try {
-		createAndCheckoutBranch(branch);
-		fs.mkdirSync(BOOKS_DIR, { recursive: true });
-		fs.writeFileSync(filePath, `${JSON.stringify(state.book, null, 2)}\n`);
-		commitFile(filePath, `Add ${state.title}`);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		// Best-effort recovery: switch back to whatever branch we started on
-		// so a failed commit (bad git identity, a rejected pre-commit hook,
-		// disk full) doesn't leave the repo stranded on a half-published
-		// branch that then blocks every future run via isWorkingTreeClean().
-		try {
-			checkoutBranch(state.originalBranch);
-			console.error(
-				`\nPublish failed on branch "${branch}": ${message}\n` +
-					`Restored original branch "${state.originalBranch}". "${branch}" may still exist with a ` +
-					`partial/uncommitted change — inspect it and delete it ("git branch -D ${branch}") if needed.`,
-			);
-		} catch {
-			console.error(
-				`\nPublish failed on branch "${branch}": ${message}\n` +
-					`Could not automatically switch back to "${state.originalBranch}" — resolve this manually ` +
-					`("git status", "git branch") before running generate again.`,
-			);
-		}
-		throw err;
-	}
-
-	console.log(`\nCommitted to branch "${branch}".`);
-	console.log(`Run "pnpm dev" and open /books/${state.slug} to review before merging to main.`);
+// ---------------------------------------------------------------------------
+// Stage 5 (alternate) — Emit JSON instead of publishing (sandboxed path)
+// ---------------------------------------------------------------------------
+// Used in place of publishNode when --emit-json is passed: writes the
+// validated book straight to a file (consumed by the host-only
+// scripts/publish-book.ts, which does the actual git branch/commit) instead
+// of touching git — this is what runs inside the Docker sandbox, which has
+// no repo access at all. See docs/blueprint/05-operations-and-future.md.
+async function emitNode(state: State): Promise<Partial<State>> {
+	const json = `${JSON.stringify(state.book, null, 2)}\n`;
+	fs.writeFileSync(emitJsonPath!, json);
+	console.log(`\nWrote validated book JSON to ${emitJsonPath}.`);
+	console.log('Run scripts/publish-book.ts on the host to commit it.');
 	return {};
 }
 
@@ -397,6 +360,7 @@ const graph = new StateGraph(BookGenState)
 	.addNode('repair', repairNode)
 	.addNode('fail', failNode)
 	.addNode('publish', publishNode)
+	.addNode('emit', emitNode)
 	.addEdge(START, 'setup')
 	.addEdge('setup', 'outline')
 	.addConditionalEdges('outline', dispatchChapters)
@@ -406,25 +370,29 @@ const graph = new StateGraph(BookGenState)
 		'validate',
 		(state) =>
 			state.validationErrors.length === 0
-				? 'publish'
+				? emitJsonPath
+					? 'emit'
+					: 'publish'
 				: state.retryCount < MAX_TOP_LEVEL_RETRIES
 					? 'repair'
 					: 'fail',
-		{ publish: 'publish', repair: 'repair', fail: 'fail' },
+		{ publish: 'publish', emit: 'emit', repair: 'repair', fail: 'fail' },
 	)
 	.addEdge('repair', 'validate')
 	.addEdge('fail', END)
-	.addEdge('publish', END);
+	.addEdge('publish', END)
+	.addEdge('emit', END);
 
 const app = graph.compile();
 
 // ---------------------------------------------------------------------------
 // CLI entrypoint
 // ---------------------------------------------------------------------------
-// Pulls --notes <path> (a value-taking flag) out before the remaining args
-// are joined back into the title, and reads the file eagerly so a bad path
-// fails fast rather than partway through the pipeline.
-function parseArgs(argv: string[]): { title: string; force: boolean; personalNotes?: string } {
+// Pulls --notes <path> and --emit-json <path> (value-taking flags) out
+// before the remaining args are joined back into the title, and reads the
+// notes file eagerly so a bad path fails fast rather than partway through
+// the pipeline.
+function parseArgs(argv: string[]): { title: string; force: boolean; personalNotes?: string; emitJsonPath?: string } {
 	const args = [...argv];
 	const force = args.includes('--force');
 
@@ -437,8 +405,16 @@ function parseArgs(argv: string[]): { title: string; force: boolean; personalNot
 		args.splice(notesIndex, 2);
 	}
 
+	const emitJsonIndex = args.indexOf('--emit-json');
+	let emitJsonPath: string | undefined;
+	if (emitJsonIndex !== -1) {
+		emitJsonPath = args[emitJsonIndex + 1];
+		if (!emitJsonPath) throw new Error('--emit-json requires a file path argument.');
+		args.splice(emitJsonIndex, 2);
+	}
+
 	const title = args.filter((a) => a !== '--force').join(' ').trim();
-	return { title, force, personalNotes };
+	return { title, force, personalNotes, emitJsonPath };
 }
 
 async function main() {
@@ -446,7 +422,7 @@ async function main() {
 	let force: boolean;
 	let personalNotes: string | undefined;
 	try {
-		({ title, force, personalNotes } = parseArgs(process.argv.slice(2)));
+		({ title, force, personalNotes, emitJsonPath } = parseArgs(process.argv.slice(2)));
 	} catch (err) {
 		console.error(err instanceof Error ? err.message : String(err));
 		process.exit(1);
@@ -454,13 +430,13 @@ async function main() {
 	}
 
 	if (!title) {
-		console.error('Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>]');
+		console.error('Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>] [--emit-json <path>]');
 		process.exit(1);
 		return;
 	}
 
 	try {
-		searchProvider = new TavilyProvider(requireEnv('TAVILY_API_KEY'));
+		searchProvider = new GoogleCseProvider(requireEnv('GOOGLE_CSE_API_KEY'), requireEnv('GOOGLE_CSE_CX'));
 		model = createModel();
 		chapterLimit = pLimit(CHAPTER_CONCURRENCY);
 

@@ -1,0 +1,11 @@
+# Dockerfile.generate's COPY list is already explicit and never touches
+# these, but excluding them here too means a future, less careful COPY (or
+# a different Dockerfile added later) can't accidentally bake in secrets or
+# git history.
+.git
+.env
+.env.*
+node_modules
+dist
+.astro
+.generate-output

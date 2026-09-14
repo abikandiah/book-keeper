@@ -17,6 +17,10 @@ pnpm-debug.log*
 .env
 .env.production
 
+# scratch handoff dir between generate-sandboxed.sh's container and
+# publish-book.ts on the host
+.generate-output/
+
 # macOS-specific files
 .DS_Store
 

@@ -115,11 +115,23 @@ peer range of `^3.25.32 || ^4.2.0`, and `withStructuredOutput` has an explicit
 `ZodV4Like` overload — this project's `zod@4.x` is fully supported, not just
 hopefully compatible.
 
-**Search provider: Tavily** (`TAVILY_API_KEY`). Chosen over Brave/Serper
-because it's built specifically for LLM/RAG use — it returns cleaned,
-ready-to-use content rather than raw search-results HTML you'd have to parse
-yourself — and its free tier (1,000 credits/month) comfortably covers this
-project's volume.
+**Search provider: Google Custom Search JSON API** (`GOOGLE_CSE_API_KEY` +
+`GOOGLE_CSE_CX`). Tavily (`scripts/search/tavily.ts`, `TAVILY_API_KEY`) was
+the original choice — built specifically for LLM/RAG use, returning cleaned
+content rather than raw HTML — but its free tier requires a credit card on
+file with automatic billing on overage, a risk worth eliminating rather than
+just tolerating. Google CSE's free tier (100 queries/day) is structurally
+safer: with no billing account attached to the Cloud project, going over
+quota just fails the request (429) — there's no payment method on file for
+it to charge.
+
+The tradeoff: Google CSE only returns short meta-description snippets
+(~200 chars) via its API, not cleaned page content like Tavily. To close
+that gap, `GoogleCseProvider` fetches each result's page itself and runs it
+through Mozilla's Readability extractor (the same engine behind Firefox
+Reader View) to pull real article text, falling back to the raw snippet if
+extraction fails for any reason (paywall, JS-only page, timeout, non-HTML
+response) — see `scripts/search/google-cse/extract.ts`.
 
 The key architectural reason search needs its own step: most models
 available through OpenRouter have **no built-in web search tool** — there's
@@ -127,8 +139,8 @@ no equivalent of a single "enable web search" flag that works across models.
 So search has to be its own explicit call you write, not something the model
 triggers mid-generation:
 
-1. Call the search API directly (Tavily).
-2. Take the top few results (titles + snippets) and paste them into the
+1. Call the search API directly (Google CSE).
+2. Take the top few results (titles + content) and paste them into the
    prompt as context: "Here is what search turned up: [...]. Based on this,
    do X."
 3. The model then reasons over that pasted context — it's not calling
@@ -139,10 +151,10 @@ This means the Outline stage and every per-chapter call need a search call
 
 ### Keep the search provider swappable
 
-Tavily is a young company in a market that's already seen one shakeup this
-year (the retired Bing Search API, Tavily's own acquisition by Nebius) — so
-even though it's the pick for now, don't hard-wire calls to Tavily's SDK/API
-shape throughout the pipeline. Isolate it behind a small interface:
+Search providers come and go (Tavily's own acquisition by Nebius, the
+retired Bing Search API, and now a move off Tavily entirely) — so no stage
+hard-wires a provider's SDK/API shape. Everything depends on one small
+interface instead:
 
 ```ts
 // scripts/search/types.ts
@@ -157,37 +169,31 @@ export interface SearchProvider {
 }
 ```
 
-```ts
-// scripts/search/tavily.ts — confirmed against Tavily's live API
-// (POST https://api.tavily.com/search, Authorization: Bearer <key>, a
-// dummy key correctly produces a 401 rather than failing before the request)
-import type { SearchProvider, SearchResult } from './types';
+The active implementation, `GoogleCseProvider`
+(`scripts/search/google-cse/provider.ts`), is itself split into three
+single-concern files rather than one class doing everything:
 
-export class TavilyProvider implements SearchProvider {
-  constructor(private apiKey: string) {}
+- `google-cse/client.ts` — the raw Custom Search JSON API call
+  (`key`/`cx`/`q`/`num` query params), mapped into an internal
+  `{ title, url, snippet }` shape. Throws a descriptive error on failure,
+  calling out a 429 specifically as a daily-quota exhaustion.
+- `google-cse/extract.ts` — `extractPageText(url)`, a best-effort page fetch
+  + Readability extraction. Never throws (mirrors `lib/openlibrary.ts`'s
+  `lookupIsbn` convention) — any failure just resolves to `undefined` so the
+  caller can fall back to the snippet instead of breaking generation.
+- `google-cse/provider.ts` — `GoogleCseProvider implements SearchProvider`,
+  the only file of the three that touches `SearchResult`/`SearchProvider`.
+  Composes the other two: calls `client.ts` for results, then runs
+  `extract.ts` over each URL concurrently (its own small `pLimit`, separate
+  from `generate-book.ts`'s `CHAPTER_CONCURRENCY`), preferring extracted
+  text over the raw snippet when it's actually longer.
 
-  async search(query: string, maxResults = 5): Promise<SearchResult[]> {
-    const res = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({ query, max_results: maxResults, search_depth: 'basic' }),
-    });
-    if (!res.ok) {
-      throw new Error(`Tavily search failed (${res.status} ${res.statusText}): ${await res.text()}`);
-    }
-    const data = (await res.json()) as { results: SearchResult[] };
-    return data.results.map((r) => ({ title: r.title, url: r.url, content: r.content }));
-  }
-}
-```
-
-Every stage/node should depend only on the `SearchProvider` interface, never
-import `TavilyProvider` directly inline. Swapping providers later means
-writing one new file that implements `SearchProvider` and changing a single
-line where the provider is instantiated.
+`TavilyProvider` (`scripts/search/tavily.ts`) still exists as a second,
+currently-inactive `SearchProvider` implementation — kept in case Tavily is
+ever preferable again. Every stage/node depends only on the
+`SearchProvider` interface, never a concrete provider directly. Switching
+which one is active is one import + one instantiation line in
+`generate-book.ts`'s `main()`, nothing else.
 
 **On free-tier models:** `LLM_MODEL` can point at one of OpenRouter's
 `:free`-suffixed models (as in the `.env.example` default), making the
