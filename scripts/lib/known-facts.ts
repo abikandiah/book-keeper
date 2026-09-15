@@ -9,19 +9,26 @@ import { z } from 'zod';
 // Anything omitted still goes through the normal search+consensus path (see
 // outlineNode in generate-book.ts).
 export const knownFactsSchema = z.object({
+	// When given, this alone decides fiction vs non-fiction generation — no
+	// need to also pass --fiction on the command line. Wins over --fiction if
+	// both are given (same "known facts beat everything else" precedent as
+	// title/author/year above) — omit this and --fiction (or its absence)
+	// decides instead (see generate-book.ts).
+	kind: z.enum(['fiction', 'non-fiction']).optional(),
 	title: z.string().optional(),
 	author: z.string().optional(),
 	year: z.number().optional(),
 	isbn: z.string().optional(),
 	page_count: z.number().optional(),
-	// When given (non-empty), the entire outline search+consensus stage is
-	// skipped — this list is trusted outright as the real, ordered
-	// chapter/section list for this edition. Don't supply a partial or
-	// uncertain list here; leave the field out instead and let outline
-	// search run normally. Still gets one search + a narrow model critique
-	// first (verifyKnownFactsNode in generate-book.ts, skippable via
-	// --trust-known) — the outline-consensus skip above means this is
-	// otherwise the one field with no other check at all.
+	// Non-fiction only (fiction generation has no chapter stage to skip, and
+	// ignores this field entirely). When given (non-empty), the entire
+	// outline search+consensus stage is skipped — this list is trusted
+	// outright as the real, ordered chapter/section list for this edition.
+	// Don't supply a partial or uncertain list here; leave the field out
+	// instead and let outline search run normally. Still gets one search + a
+	// narrow model critique first (verifyKnownFactsNode in generate-book.ts,
+	// skippable via --trust-known) — the outline-consensus skip above means
+	// this is otherwise the one field with no other check at all.
 	chapters: z.array(z.string()).min(1).optional(),
 	notes: z.string().optional(),
 });

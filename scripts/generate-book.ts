@@ -8,11 +8,14 @@ import {
 	bookSchema,
 	chapterContentSchema,
 	chapterSchema,
+	fictionBookSchema,
+	fictionRepairableSchema,
 	outlineSchema,
 	repairableSchema,
 	synthesisSchema,
 	type Book,
 	type Chapter,
+	type FictionRepairable,
 	type Outline,
 	type Repairable,
 	type Synthesis,
@@ -21,10 +24,11 @@ import { currentBranch, isGitRepo } from './lib/git';
 import { loadKnownFacts, type KnownFacts } from './lib/known-facts';
 import { log, logError } from './lib/log';
 import { createModel } from './lib/model';
-import { lookupEditionByIsbn, lookupIsbn } from './lib/openlibrary';
+import { lookupEditionByIsbn, lookupIsbn, lookupSubjects } from './lib/openlibrary';
 import {
 	buildChapterCritiquePrompt,
 	buildChapterPrompt,
+	buildFictionSummaryPrompt,
 	buildKnownFactsCritiquePrompt,
 	buildOutlineConsensusPrompt,
 	buildOutlinePrompt,
@@ -174,6 +178,11 @@ const BookGenState = Annotation.Root({
 	// consumed (validateNode). Fine to hold a raw Promise in state since
 	// checkpointing isn't used in v1 — nothing ever needs to serialize this.
 	isbnPromise: Annotation<Promise<{ isbn?: string; pageCount?: number } | undefined> | undefined>(),
+	// Same overlap-with-chapter-fan-out treatment as isbnPromise, kicked off
+	// alongside it in outlineNode — but awaited in synthesisNode instead of
+	// validateNode, since (unlike isbn/pageCount) this needs to be in hand
+	// before the tag-choosing prompt is built, not just before final assembly.
+	subjectsPromise: Annotation<Promise<string[] | undefined> | undefined>(),
 	// Raw text from --notes, if given. A steering signal for the Synthesis
 	// stage only — never persisted to the book JSON and never quoted
 	// verbatim in output (the reader's own notes may be messy fragments,
@@ -194,10 +203,29 @@ const BookGenState = Annotation.Root({
 
 type State = typeof BookGenState.State;
 
+// Structural interfaces (not the full `State`) for the handful of nodes
+// shared between this graph and the fiction graph below — setup/publish/
+// emit/fail don't touch anything kind-specific, so both graphs' states
+// satisfy these directly rather than needing two near-identical copies.
+interface SetupState {
+	title: string;
+	force: boolean;
+}
+interface PublishableState {
+	book: Book | undefined;
+	slug: string;
+	originalBranch: string;
+	title: string;
+}
+interface FailableState {
+	retryCount: number;
+	validationErrors: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Stage 0 — Setup
 // ---------------------------------------------------------------------------
-async function setupNode(state: State): Promise<Partial<State>> {
+async function setupNode(state: SetupState): Promise<{ slug: string; originalBranch: string }> {
 	const slug = slugify(state.title);
 	if (!slug) {
 		throw new Error(
@@ -474,11 +502,17 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 				return { isbn, pageCount: known?.page_count ?? meta?.pageCount };
 			});
 
+	// Fired the same way as isbnPromise above (not awaited here) — its
+	// round-trip overlaps with the chapter fan-out, and is only awaited once
+	// synthesisNode actually needs it for the tags prompt.
+	const subjectsPromise = lookupSubjects(title, author);
+
 	return {
 		title,
 		author,
 		year,
 		isbnPromise,
+		subjectsPromise,
 		chapterTitles,
 		totalChapters: chapterTitles.length,
 	};
@@ -580,7 +614,8 @@ async function synthesisNode(state: State): Promise<Partial<State>> {
 		.join('\n\n');
 
 	const results = await searchProvider.search(`"${state.title}" ${state.author ?? ''} themes summary`.trim(), 3);
-	const prompt = buildSynthesisPrompt(state.title, state.author, chaptersSummary, results, state.personalNotes);
+	const subjects = await state.subjectsPromise;
+	const prompt = buildSynthesisPrompt(state.title, state.author, chaptersSummary, results, state.personalNotes, subjects);
 	const synthesis = await model.withStructuredOutput(synthesisSchema).invoke(prompt);
 
 	log('Synthesis complete.');
@@ -610,6 +645,7 @@ async function validateNode(state: State): Promise<Partial<State>> {
 	);
 
 	const candidate = {
+		kind: 'non-fiction' as const,
 		title: state.title,
 		author: state.author,
 		year: state.year,
@@ -688,7 +724,7 @@ async function repairNode(state: State): Promise<Partial<State>> {
 	};
 }
 
-function failNode(state: State): never {
+function failNode(state: FailableState): never {
 	throw new Error(
 		`Generation failed validation after ${state.retryCount} repair attempt(s):\n${state.validationErrors.join('\n')}`,
 	);
@@ -697,7 +733,7 @@ function failNode(state: State): never {
 // ---------------------------------------------------------------------------
 // Stage 5 — Publish to a draft branch (commit only — no push, see Part 5)
 // ---------------------------------------------------------------------------
-async function publishNode(state: State): Promise<Partial<State>> {
+async function publishNode(state: PublishableState): Promise<Record<string, never>> {
 	publishBook(state.book!, state.slug, state.originalBranch, state.title);
 	return {};
 }
@@ -710,13 +746,160 @@ async function publishNode(state: State): Promise<Partial<State>> {
 // scripts/publish-book.ts, which does the actual git branch/commit) instead
 // of touching git — this is what runs inside the Docker sandbox, which has
 // no repo access at all. See docs/blueprint/05-operations-and-future.md.
-async function emitNode(state: State): Promise<Partial<State>> {
+async function emitNode(state: PublishableState): Promise<Record<string, never>> {
 	const json = `${JSON.stringify(state.book, null, 2)}\n`;
 	fs.writeFileSync(emitJsonPath!, json);
 	log(`\nWrote validated book JSON to ${emitJsonPath}.`);
 	log('Run scripts/publish-book.ts on the host to commit it.');
 	return {};
 }
+
+// ---------------------------------------------------------------------------
+// Fiction pipeline — deliberately a separate, much shorter graph rather than
+// a `kind` branch threaded through the non-fiction graph above: no chapter
+// list, no per-chapter fan-out/critique, no synthesis-from-chapters step, no
+// flashcard deck — just search, one drafting call, an Open Library lookup,
+// and validate/repair/publish (shared with the non-fiction graph above,
+// since none of those three care about `kind`). See fictionBookSchema in
+// src/content/schema.ts for what a cataloged fiction entry actually needs.
+// ---------------------------------------------------------------------------
+const FictionBookGenState = Annotation.Root({
+	title: Annotation<string>(),
+	force: Annotation<boolean>({ reducer: overwrite, default: () => false }),
+	slug: Annotation<string>({ reducer: overwrite, default: () => '' }),
+	originalBranch: Annotation<string>({ reducer: overwrite, default: () => '' }),
+	knownFacts: Annotation<KnownFacts | undefined>(),
+	personalNotes: Annotation<string | undefined>(),
+	// The one in-flight draft, replaced wholesale on repair — unlike the
+	// non-fiction graph there's no separate "chapters" accumulator or
+	// "synthesis" field to keep distinct from title/author/year, since one
+	// call produces all of it together (see fictionRepairableSchema).
+	draft: Annotation<FictionRepairable | undefined>(),
+	// Resolved once in fictionDraftNode (not re-fetched on every repair-loop
+	// re-entry into validate — repair only replaces `draft`, never re-runs
+	// this node) — a repeat lookup on each retry would be wasted network
+	// round-trips, and if Open Library's own ranking is non-deterministic
+	// across calls, could even resolve to a different edition than the first
+	// attempt did.
+	isbn: Annotation<string | undefined>(),
+	pageCount: Annotation<number | undefined>(),
+	book: Annotation<Book | undefined>(),
+	validationErrors: Annotation<string[]>({ reducer: overwrite, default: () => [] }),
+	retryCount: Annotation<number>({ reducer: overwrite, default: () => 0 }),
+});
+
+type FictionState = typeof FictionBookGenState.State;
+
+async function fictionDraftNode(state: FictionState): Promise<Partial<FictionState>> {
+	const known = state.knownFacts;
+	const searchTitle = known?.title || state.title;
+
+	// Run concurrently, not sequentially — neither depends on the other's
+	// result, and both need to be in hand before the prompt below is built
+	// (unlike the non-fiction graph's isbnPromise/subjectsPromise, which
+	// overlap with a much longer parallel chapter-fan-out stage, this
+	// pipeline has no such stage to hide a sequential wait behind, so the
+	// two round-trips need to overlap with *each other* instead).
+	const [results, subjects] = await Promise.all([
+		searchProvider.search(`"${searchTitle}" ${known?.author ?? ''} plot summary themes`.trim(), 5),
+		lookupSubjects(searchTitle, known?.author),
+	]);
+	const prompt = buildFictionSummaryPrompt(searchTitle, results, known, state.personalNotes, subjects);
+	const draft = await model.withStructuredOutput(fictionRepairableSchema).invoke(prompt);
+
+	log(`Drafted summary for "${draft.title}"${draft.author ? ` by ${draft.author}` : ''}.`);
+
+	// Resolved once here, not in validateNode — validateNode re-runs on every
+	// repair-loop retry (repair only replaces `draft`), so resolving there
+	// would mean a wasted extra network round-trip per retry, and no
+	// guarantee the same isbn/pageCount even comes back twice in a row.
+	// Known facts beat the model's own draft, same precedence as the
+	// non-fiction graph's `known?.title ?? consensus.title`.
+	const title = known?.title ?? draft.title;
+	const author = known?.author ?? draft.author;
+	const isbn = known?.isbn ?? (await lookupIsbn(title, author));
+	const pageCount = known?.page_count ?? (isbn ? (await lookupEditionByIsbn(isbn))?.pageCount : undefined);
+	log(
+		isbn
+			? `Found ISBN ${isbn}${pageCount ? `, ${pageCount} pages` : ''} (cover image available).`
+			: 'No ISBN found — book will render without a cover.',
+	);
+
+	// `title` must be written back into state, not just used locally — the
+	// non-fiction graph's outlineNode does the same (`return { title, ... }`)
+	// specifically so publishNode's commit message uses the real resolved
+	// title instead of whatever placeholder seeded `state.title` at setup
+	// (the CLI-typed title, or the --known file's basename fallback).
+	return { draft, title, isbn, pageCount };
+}
+
+async function fictionValidateNode(state: FictionState): Promise<Partial<FictionState>> {
+	const known = state.knownFacts;
+	const draft = state.draft!;
+	const title = known?.title ?? draft.title;
+	const author = known?.author ?? draft.author;
+	const year = known?.year ?? draft.year;
+
+	const candidate = {
+		kind: 'fiction' as const,
+		title,
+		author,
+		year,
+		isbn: state.isbn,
+		page_count: state.pageCount,
+		tags: draft.tags,
+		date_added: new Date().toISOString().slice(0, 10),
+		verified: false,
+		one_line_takeaway: draft.one_line_takeaway,
+		synopsis: draft.synopsis,
+	};
+
+	const parsed = fictionBookSchema.safeParse(candidate);
+	if (parsed.success) {
+		log('Validated against the books content schema.');
+		return { validationErrors: [], book: parsed.data };
+	}
+
+	const errors = parsed.error.issues.map(formatIssue);
+	log(`Validation failed (attempt ${state.retryCount + 1}): ${errors.join('; ')}`);
+	return { validationErrors: errors };
+}
+
+async function fictionRepairNode(state: FictionState): Promise<Partial<FictionState>> {
+	const repaired = await model
+		.withStructuredOutput(fictionRepairableSchema)
+		.invoke(buildRepairPrompt(state.draft, state.validationErrors));
+	return { draft: repaired, retryCount: state.retryCount + 1 };
+}
+
+// Shared by both graphs' post-`validate` conditional edge — identical retry
+// policy either way (emit/publish once clean, repair up to the cap, then
+// fail), so a future policy change (e.g. a different retry cap) only needs
+// to happen once instead of being kept in sync by hand in two places.
+const VALIDATE_OUTCOME_EDGES = { publish: 'publish', emit: 'emit', repair: 'repair', fail: 'fail' } as const;
+function decideAfterValidate(state: FailableState): keyof typeof VALIDATE_OUTCOME_EDGES {
+	if (state.validationErrors.length === 0) return emitJsonPath ? 'emit' : 'publish';
+	return state.retryCount < MAX_TOP_LEVEL_RETRIES ? 'repair' : 'fail';
+}
+
+const fictionGraph = new StateGraph(FictionBookGenState)
+	.addNode('setup', setupNode)
+	.addNode('draftSummary', fictionDraftNode)
+	.addNode('validate', fictionValidateNode)
+	.addNode('repair', fictionRepairNode)
+	.addNode('fail', failNode)
+	.addNode('publish', publishNode)
+	.addNode('emit', emitNode)
+	.addEdge(START, 'setup')
+	.addEdge('setup', 'draftSummary')
+	.addEdge('draftSummary', 'validate')
+	.addConditionalEdges('validate', decideAfterValidate, VALIDATE_OUTCOME_EDGES)
+	.addEdge('repair', 'validate')
+	.addEdge('fail', END)
+	.addEdge('publish', END)
+	.addEdge('emit', END);
+
+const fictionApp = fictionGraph.compile();
 
 // ---------------------------------------------------------------------------
 // Graph wiring
@@ -738,18 +921,7 @@ const graph = new StateGraph(BookGenState)
 	.addConditionalEdges('outline', dispatchChapters)
 	.addEdge('chapterDetail', 'synthesize')
 	.addEdge('synthesize', 'validate')
-	.addConditionalEdges(
-		'validate',
-		(state) =>
-			state.validationErrors.length === 0
-				? emitJsonPath
-					? 'emit'
-					: 'publish'
-				: state.retryCount < MAX_TOP_LEVEL_RETRIES
-					? 'repair'
-					: 'fail',
-		{ publish: 'publish', emit: 'emit', repair: 'repair', fail: 'fail' },
-	)
+	.addConditionalEdges('validate', decideAfterValidate, VALIDATE_OUTCOME_EDGES)
 	.addEdge('repair', 'validate')
 	.addEdge('fail', END)
 	.addEdge('publish', END)
@@ -761,9 +933,11 @@ const app = graph.compile();
 // CLI entrypoint
 // ---------------------------------------------------------------------------
 const USAGE =
-	'Usage: pnpm run generate -- ["Book Title"] [--force] [--notes <path>] [--emit-json <path>] [--isbn <isbn>] ' +
-	'[--known <path>] [--trust-known]\n' +
-	'("Book Title" may be omitted when --known is given — it falls back to the known file\'s own name.)';
+	'Usage: pnpm run generate -- ["Book Title"] [--force] [--fiction] [--notes <path>] [--emit-json <path>] ' +
+	'[--isbn <isbn>] [--known <path>] [--trust-known]\n' +
+	'("Book Title" may be omitted when --known is given — it falls back to the known file\'s own name.)\n' +
+	'(--fiction runs the shorter fiction pipeline — no chapters, no flashcard review, just details + summary. ' +
+	'A --known file\'s own "kind" field decides this instead, if given.)';
 
 // Guards every value-taking flag below against silently swallowing the
 // *next* flag as its own value when the actual value was left off (e.g.
@@ -803,6 +977,7 @@ function parseArgs(
 	title: string;
 	titleWasTyped: boolean;
 	force: boolean;
+	fiction: boolean;
 	personalNotes?: string;
 	emitJsonPath?: string;
 	isbn?: string;
@@ -814,6 +989,7 @@ function parseArgs(
 	// so it doesn't end up folded into the title below.
 	const args = argv.filter((a) => a !== '--');
 	const force = args.includes('--force');
+	const fiction = args.includes('--fiction');
 	const trustKnown = args.includes('--trust-known');
 	// Internal flag, set only by scripts/generate-sandboxed.sh — never
 	// documented for a human to type. That wrapper has to resolve the
@@ -858,7 +1034,7 @@ function parseArgs(
 	}
 
 	const typedTitle = args
-		.filter((a) => a !== '--force' && a !== '--trust-known' && a !== '--title-not-typed')
+		.filter((a) => a !== '--force' && a !== '--fiction' && a !== '--trust-known' && a !== '--title-not-typed')
 		.join(' ')
 		.trim();
 	// Falls back to the --known file's own basename (e.g.
@@ -874,6 +1050,7 @@ function parseArgs(
 		title,
 		titleWasTyped: !!typedTitle && !titleNotTyped,
 		force,
+		fiction,
 		personalNotes,
 		emitJsonPath,
 		isbn,
@@ -886,12 +1063,13 @@ async function main() {
 	let title: string;
 	let titleWasTyped: boolean;
 	let force: boolean;
+	let fiction: boolean;
 	let personalNotes: string | undefined;
 	let isbn: string | undefined;
 	let known: KnownFacts | undefined;
 	let trustKnown: boolean;
 	try {
-		({ title, titleWasTyped, force, personalNotes, emitJsonPath, isbn, known, trustKnown } = parseArgs(
+		({ title, titleWasTyped, force, fiction, personalNotes, emitJsonPath, isbn, known, trustKnown } = parseArgs(
 			process.argv.slice(2),
 		));
 	} catch (err) {
@@ -920,15 +1098,27 @@ async function main() {
 	const knownFacts: KnownFacts | undefined =
 		known || isbn ? { ...known, isbn: isbn ?? known?.isbn } : undefined;
 
+	// A --known file's own `kind` is ground truth, same precedence as its
+	// title/author/year/isbn — it wins over --fiction if both are given (see
+	// knownFactsSchema's comment).
+	const isFiction = knownFacts?.kind ? knownFacts.kind === 'fiction' : fiction;
+
 	try {
 		searchProvider = new TavilyProvider(requireEnv('TAVILY_API_KEY'));
 		model = createModel();
 		chapterLimit = pLimit(CHAPTER_CONCURRENCY);
 
-		await app.invoke(
-			{ title, titleWasTyped, force, personalNotes: combinedNotes || undefined, knownFacts, trustKnown },
-			{ recursionLimit: 50 },
-		);
+		if (isFiction) {
+			await fictionApp.invoke(
+				{ title, force, personalNotes: combinedNotes || undefined, knownFacts },
+				{ recursionLimit: 50 },
+			);
+		} else {
+			await app.invoke(
+				{ title, titleWasTyped, force, personalNotes: combinedNotes || undefined, knownFacts, trustKnown },
+				{ recursionLimit: 50 },
+			);
+		}
 	} catch (err) {
 		logError(`\nGeneration failed: ${err instanceof Error ? err.message : err}`);
 		process.exit(1);

@@ -30,13 +30,25 @@ Files you add here besides `example.json` are gitignored (see
 
 | Field        | Type       | Notes |
 |--------------|------------|-------|
+| `kind`       | `"fiction"` \| `"non-fiction"` | Which generation pipeline to run — see below. Omit to fall back to `--fiction` on the command line (defaults to non-fiction if neither is given). |
 | `title`      | string     | The exact published title of this edition. |
 | `author`     | string     | Full name — author or translator. |
 | `year`       | number     | Publication year of this edition. |
 | `isbn`       | string     | Used to fetch the cover image and page count directly, skipping search. |
 | `page_count` | number     | Kept as-is even if no ISBN/cover match is found. |
-| `chapters`   | string[]   | See below — the highest-stakes field. |
-| `notes`      | string     | Your own rough reading notes — a weighting signal for the synopsis/key claims, never quoted verbatim. Combines with `--notes` if both are given. |
+| `chapters`   | string[]   | Non-fiction only — see below, the highest-stakes field. Ignored entirely for `"kind": "fiction"`. |
+| `notes`      | string     | Your own rough reading notes — a weighting signal for the synopsis/key claims (or plot summary, for fiction), never quoted verbatim. Combines with `--notes` if both are given. |
+
+### `kind` — fiction vs. non-fiction
+
+Setting this is what lets `--known known/my-book.json` work standalone,
+without also typing `--fiction` on the command line. A non-fiction entry
+gets the full study-guide treatment (chapter breakdown + flashcard review
+deck); a fiction entry is deliberately much lighter — just title/author/
+cover/tags plus a plot-summary synopsis, no chapters, no review deck (a
+novel isn't something you drill recall-style claims on). See
+`src/content/schema.ts` (`nonFictionBookSchema` / `fictionBookSchema`) for
+the exact shape each produces.
 
 ### `chapters` — read this before filling it in
 

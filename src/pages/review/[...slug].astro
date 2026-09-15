@@ -5,7 +5,11 @@ import Layout from '../../layouts/Layout.astro';
 import { ReviewDeck, type ReviewCard } from '../../components/ReviewDeck';
 
 export async function getStaticPaths() {
-	const books = await getCollection('books');
+	// Fiction books have no key_claims_for_review at all (see
+	// src/content/schema.ts) — nothing ever links to a /review/<slug> for one
+	// (the book page's "Test yourself" banner is non-fiction-only too), so
+	// there's no reason to statically generate a permanently-empty deck page.
+	const books = (await getCollection('books')).filter((book) => book.data.kind === 'non-fiction');
 	return [
 		{ params: { slug: undefined }, props: { books } },
 		...books.map((book) => ({ params: { slug: book.id }, props: { books: [book] } })),
@@ -24,11 +28,13 @@ const { slug } = Astro.params;
 const singleBook = slug ? books[0] : undefined;
 
 const cards: ReviewCard[] = books.flatMap((book) =>
-	book.data.key_claims_for_review.map((claim) => ({
-		...claim,
-		bookTitle: book.data.title,
-		bookSlug: book.id,
-	})),
+	book.data.kind === 'non-fiction'
+		? book.data.key_claims_for_review.map((claim) => ({
+				...claim,
+				bookTitle: book.data.title,
+				bookSlug: book.id,
+			}))
+		: [],
 );
 
 const title = singleBook ? `Review — ${singleBook.data.title} — Book Keeper` : 'Review — Book Keeper';

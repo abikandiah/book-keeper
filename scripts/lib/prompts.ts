@@ -1,6 +1,17 @@
-import type { Outline } from '../../src/content/schema';
+import { FICTION_TAGS, NONFICTION_TAGS, type Outline } from '../../src/content/schema';
 import type { KnownFacts } from './known-facts';
 import type { SearchResult } from '../search/types';
+
+// Shared by buildSynthesisPrompt (non-fiction) and buildFictionSummaryPrompt —
+// same "pick 2-4 from this exact closed list" instruction, just against
+// whichever vocabulary matches the book's kind.
+function buildTagsInstruction(tagList: readonly string[], openLibrarySubjects?: string[]): string {
+	return `2-4 tags, chosen ONLY from this fixed list (exact spelling, no others allowed): ${tagList.join(', ')}. Pick whichever subset most specifically fits this book's actual subject matter — don't default to the same one or two tags for every book.${
+		openLibrarySubjects?.length
+			? `\n  For reference, here are this book's real library catalog subjects (from Open Library) — not a list to copy from directly (they're not from the fixed list above and are often noisy/redundant), just a signal for which of the fixed tags actually fit: ${openLibrarySubjects.join(', ')}`
+			: ''
+	}`;
+}
 
 export function formatSearchResults(results: SearchResult[]): string {
 	if (results.length === 0) return '(no search results found)';
@@ -68,6 +79,7 @@ export function buildSynthesisPrompt(
 	chaptersSummary: string,
 	results: SearchResult[],
 	personalNotes?: string,
+	openLibrarySubjects?: string[],
 ): string {
 	return `You are writing the top-level summary for the non-fiction book "${bookTitle}"${author ? ` by ${author}` : ''}.
 
@@ -98,7 +110,7 @@ ${personalNotes}
 Synthesize from the chapter breakdown above (not just the raw search context) to produce:
 - one_line_takeaway: the single sentence you'd want if you only had five seconds — this is what appears on book list/cards
 - synopsis: 1-3 paragraphs covering the book's overall arc/thesis
-- tags: free-form, lowercase-kebab-case topic tags (e.g. "decision-making", "embedded-systems")
+- tags: ${buildTagsInstruction(NONFICTION_TAGS, openLibrarySubjects)}
 - key_claims_for_review: 5-15 prompt/answer flashcard pairs — recall cues and their answers, phrased for spaced-recall review, covering the claims most worth remembering cold (not necessarily one per chapter)`;
 }
 
@@ -228,6 +240,47 @@ a valid concern; only a specific, direct contradiction is.
 Return:
 - plausible: true unless there's a specific, direct contradiction
 - concerns: the specific contradiction(s) if not plausible (empty array if plausible)`;
+}
+
+// Fiction's entire generation call in one shot — no per-chapter stage, no
+// outline/synthesis split (see fictionRepairableSchema's comment in
+// schema.ts for why). Confirms title/author/year the same "known facts beat
+// search" way outlineNode does for non-fiction, and produces the plot
+// summary + tags + one-line hook that's all a cataloged fiction entry needs.
+export function buildFictionSummaryPrompt(
+	searchTitle: string,
+	results: SearchResult[],
+	knownFacts?: { title?: string; author?: string; year?: number },
+	personalNotes?: string,
+	openLibrarySubjects?: string[],
+): string {
+	return `You are cataloging the novel/fiction book "${searchTitle}" for a personal reading log — not writing a study guide, so no chapter-by-chapter breakdown and no recall-style claims are needed here.
+${formatConfirmedFacts(knownFacts)}
+Here is what web search turned up about this book:
+
+${formatSearchResults(results)}
+${
+	personalNotes
+		? `
+The reader who is generating this entry has also supplied their own rough,
+informal notes from actually reading this book. These notes are NOT source
+content: they may be fragments, shorthand, or poorly formatted, and must
+never be quoted or copied into your output verbatim. Use them only as a
+weighting signal for what the synopsis should emphasize. Write everything in
+your own clean, publishable prose regardless of how the notes are phrased.
+
+Reader's notes (raw, for weighting only — do not quote):
+${personalNotes}
+`
+		: ''
+}
+Produce:
+- title: the book's real title${knownFacts?.title ? ' — already confirmed above' : ''}
+- author: the author's full name${knownFacts?.author ? ' — already confirmed above' : ''}
+- year: the publication year${knownFacts?.year ? ' — already confirmed above' : ''}
+- one_line_takeaway: the single sentence you'd want if you only had five seconds — this is what appears on book list/cards. For fiction this is a hook, not a "lesson" (e.g. what the story is and why it matters), not a moral.
+- synopsis: 1-3 paragraphs summarizing the book's plot and central themes — light spoilers for major plot points are fine (this is a personal log, not a jacket blurb), but don't pad with generic praise
+- tags: ${buildTagsInstruction(FICTION_TAGS, openLibrarySubjects)}`;
 }
 
 export function buildRepairPrompt(previousOutput: unknown, errors: string[]): string {

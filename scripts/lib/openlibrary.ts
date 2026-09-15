@@ -13,6 +13,7 @@ const LOOKUP_TIMEOUT_MS = 8000;
 interface OpenLibrarySearchDoc {
 	title?: string;
 	isbn?: string[];
+	subject?: string[];
 }
 
 interface OpenLibrarySearchResponse {
@@ -142,6 +143,71 @@ export async function lookupIsbn(title: string, author?: string): Promise<string
 			(doc) => Array.isArray(doc.isbn) && doc.isbn.length > 0 && titlesMatch(title, doc.title, Boolean(author)),
 		);
 		return match?.isbn?.[0];
+	} catch {
+		return undefined;
+	}
+}
+
+// Library call numbers (e.g. "Cb113.h4 h3713 2015") and raw Dewey/BISAC
+// numeric codes (e.g. "599.9", "Sci027000 sci086000 sci000000") show up in
+// Open Library's raw `subject` field alongside genuinely useful topic
+// labels — neither means anything to an LLM prompt, so both are dropped
+// rather than passed through. Detected as "every space-separated token
+// contains a digit" rather than a single regex: an earlier regex-based
+// version (`/^[a-z]{0,4}[\d.]+[a-z\d. ]*$/i`) also matched real, useful
+// subjects like "20th century" and "19th century literature" (confirmed
+// directly) — a plain word like "century" or "literature" never has a digit
+// in it, so requiring every token to have one keeps those while still
+// catching "599.9", "Cb113.h4 h3713 2015", and "Sci027000 sci086000
+// sci000000" (every token in each of those does contain a digit).
+function looksLikeCatalogCode(subject: string): boolean {
+	const tokens = subject.split(/\s+/);
+	return tokens.length > 0 && tokens.every((token) => /\d/.test(token));
+}
+
+const MAX_SUBJECTS = 15;
+
+// Supplementary grounding only, never authoritative: the caller still picks
+// `tags` from a closed vocabulary (NONFICTION_TAGS/FICTION_TAGS in
+// src/content/schema.ts), this just gives the model real catalog signal to
+// weigh instead of guessing blind.
+// Same never-throws/undefined-on-failure posture as lookupIsbn — a missing or
+// failed lookup just means synthesis proceeds without this hint.
+export async function lookupSubjects(title: string, author?: string): Promise<string[] | undefined> {
+	try {
+		const params = new URLSearchParams({ title, limit: '5', fields: 'title,isbn,subject' });
+		if (author) params.set('author', author);
+
+		const { response: res, clear } = await fetchWithTimeout(
+			`https://openlibrary.org/search.json?${params.toString()}`,
+			{},
+			LOOKUP_TIMEOUT_MS,
+		);
+		let data: OpenLibrarySearchResponse;
+		try {
+			if (!res.ok) return undefined;
+			data = (await res.json()) as OpenLibrarySearchResponse;
+		} finally {
+			clear();
+		}
+		const match = data.docs?.find(
+			(doc) => Array.isArray(doc.subject) && doc.subject.length > 0 && titlesMatch(title, doc.title, Boolean(author)),
+		);
+		if (!match?.subject) return undefined;
+
+		const seen = new Set<string>();
+		const cleaned: string[] = [];
+		for (const raw of match.subject) {
+			const subject = raw.trim();
+			const isAscii = [...subject].every((ch) => ch.charCodeAt(0) < 128);
+			if (!subject || !isAscii || subject.includes(':') || looksLikeCatalogCode(subject)) continue;
+			const key = subject.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			cleaned.push(subject);
+			if (cleaned.length >= MAX_SUBJECTS) break;
+		}
+		return cleaned.length > 0 ? cleaned : undefined;
 	} catch {
 		return undefined;
 	}

@@ -25,16 +25,31 @@ ideas have somewhere to go that isn't "the v1 build."
    trust what's there, flip `"verified": false` to `true` in the same file —
    it renders as a small badge, so future-you can tell at a glance which
    books were actually reviewed versus raw, unchecked AI output.
-5. When you're satisfied, merge it: either a plain local merge
-   (`git checkout main && git merge book/<slug>`), or, if you want to see it
-   on the actual deployed site before merging, `git push -u origin
-   book/<slug>` and open a PR (`gh pr create`) — Cloudflare Workers, once
-   connected to the repo, builds a preview deployment for pushed
-   branches/PRs automatically, no CI workflow needed for that. Merge to
-   `main` when satisfied.
+5. When you're satisfied, `pnpm run accept -- <slug>` — merges `book/<slug>`
+   into `main` and deletes the branch in one step. It refuses (unless you
+   pass `--force`) if `verified` isn't `true` on that branch yet, so you
+   can't accidentally publish a book you never actually reviewed. If it's
+   not worth keeping, `pnpm run reject -- <slug>` deletes the branch (and
+   its JSON) without touching `main`.
+
+   If you'd rather see it on the actual deployed site before merging, `git
+   push -u origin book/<slug>` and open a PR (`gh pr create`) instead —
+   Cloudflare Workers, once connected to the repo, builds a preview
+   deployment for pushed branches/PRs automatically, no CI workflow needed
+   for that. Note this is a genuine alternative to step 5, not an addition
+   to it: `accept`/`reject` only know about *local* branches, so merging the
+   PR on GitHub (or closing it) leaves the local `book/<slug>` branch
+   undeleted and local `main` stale relative to `origin/main` — clean both
+   up by hand afterward (`git checkout main && git pull && git branch -d
+   book/<slug>`) rather than also running `accept`/`reject`, which would
+   just fail or double up on a merge that's already happened remotely. If
+   the PR was merged via GitHub's "squash and merge" (not a plain merge),
+   local `git branch -d` will refuse with "branch not fully merged" — that's
+   expected (a squash produces a new commit main never had locally), so use
+   `git branch -D book/<slug>` there instead.
 6. Cloudflare rebuilds and redeploys `main` automatically (see Part 0 for
-   the Workers/`wrangler.jsonc` setup); check the live site once it's
-   deployed. Delete the merged `book/<slug>` branch.
+   the Workers/`wrangler.jsonc` setup) once a book is accepted; check the
+   live site once it's deployed.
 
 That's the whole loop. The draft-branch step is the review gate — if it
 ever stops feeling like enough (e.g. you want the push/PR-open step

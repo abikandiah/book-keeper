@@ -8,8 +8,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-usage="Usage: scripts/generate-sandboxed.sh [\"Book Title\"] [--force] [--notes <path>] [--isbn <isbn>] [--known <path>] [--trust-known]
-(\"Book Title\" may be omitted when --known is given -- it falls back to the known file's own name.)"
+usage="Usage: scripts/generate-sandboxed.sh [\"Book Title\"] [--force] [--fiction] [--notes <path>] [--isbn <isbn>] [--known <path>] [--trust-known]
+(\"Book Title\" may be omitted when --known is given -- it falls back to the known file's own name.)
+(--fiction runs the shorter fiction pipeline -- a --known file's own \"kind\" field decides this instead, if given.)"
 
 # No "at least one arg" guard here (a zero-arg call is otherwise a valid
 # shape now, e.g. bare `--known <path>` alone) -- the real completeness
@@ -17,6 +18,7 @@ usage="Usage: scripts/generate-sandboxed.sh [\"Book Title\"] [--force] [--notes 
 # fall back to --known's basename.
 
 force=""
+fiction=""
 notes_path=""
 isbn=""
 known_path=""
@@ -33,6 +35,10 @@ while [ $# -gt 0 ]; do
 		;;
 	--force)
 		force="--force"
+		shift
+		;;
+	--fiction)
+		fiction="--fiction"
 		shift
 		;;
 	--notes)
@@ -184,6 +190,9 @@ docker_volume_args=(-v "$output_dir:/output")
 container_args=("$title" --emit-json /output/book.json)
 if [ -n "$force" ]; then
 	container_args+=(--force)
+fi
+if [ -n "$fiction" ]; then
+	container_args+=(--fiction)
 fi
 if [ -n "$isbn" ]; then
 	container_args+=(--isbn "$isbn")

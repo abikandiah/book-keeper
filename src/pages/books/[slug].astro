@@ -20,21 +20,15 @@ interface Props {
 }
 
 const { book } = Astro.props;
-const {
-	title,
-	author,
-	year,
-	isbn,
-	page_count,
-	tags,
-	verified,
-	one_line_takeaway,
-	synopsis,
-	chapters,
-	key_claims_for_review,
-} = book.data;
+const { title, author, year, isbn, page_count, tags, verified, one_line_takeaway, synopsis } = book.data;
 const cover = coverUrl(isbn, 'L');
 const paragraphs = synopsis.split(/\n\n+/);
+// `chapters`/`key_claims_for_review` only exist on the non-fiction branch of
+// the schema (see src/content/schema.ts) — narrowed once here rather than
+// re-checking `book.data.kind === 'non-fiction'` at each of the three
+// sections below (narrowing a separately-destructured `kind` local wouldn't
+// narrow `book.data` itself, so this has to be its own variable).
+const nonFiction = book.data.kind === 'non-fiction' ? book.data : undefined;
 ---
 
 <Layout title={`${title} — Book Keeper`} description={one_line_takeaway}>
@@ -70,29 +64,34 @@ const paragraphs = synopsis.split(/\n\n+/);
 			{paragraphs.map((paragraph) => <p>{paragraph}</p>)}
 		</div>
 
-		{key_claims_for_review.length > 0 && (
-			<a href={`/review/${book.id}`} class="review-banner">
-				<span>
-					Test yourself on {key_claims_for_review.length} key claim{key_claims_for_review.length === 1 ? '' : 's'}
-				</span>
-				<span class="review-banner-arrow">→</span>
-			</a>
-		)}
+		{nonFiction && (
+			<Fragment>
+				{nonFiction.key_claims_for_review.length > 0 && (
+					<a href={`/review/${book.id}`} class="review-banner">
+						<span>
+							Test yourself on {nonFiction.key_claims_for_review.length} key claim
+							{nonFiction.key_claims_for_review.length === 1 ? '' : 's'}
+						</span>
+						<span class="review-banner-arrow">→</span>
+					</a>
+				)}
 
-		<details class="key-claims-section">
-			<summary class="section-label collapsible-summary">Key Claims ({key_claims_for_review.length})</summary>
-			<div class="key-claims">
-				{key_claims_for_review.map((claim) => (
-					<div class="key-claim">
-						<p class="key-claim-prompt">{claim.prompt}</p>
-						<p class="key-claim-answer">{claim.answer}</p>
+				<details class="key-claims-section">
+					<summary class="section-label collapsible-summary">Key Claims ({nonFiction.key_claims_for_review.length})</summary>
+					<div class="key-claims">
+						{nonFiction.key_claims_for_review.map((claim) => (
+							<div class="key-claim">
+								<p class="key-claim-prompt">{claim.prompt}</p>
+								<p class="key-claim-answer">{claim.answer}</p>
+							</div>
+						))}
 					</div>
-				))}
-			</div>
-		</details>
+				</details>
 
-		<div class="chapters">
-			{chapters.map((chapter) => <ChapterBlock chapter={chapter} />)}
-		</div>
+				<div class="chapters">
+					{nonFiction.chapters.map((chapter) => <ChapterBlock chapter={chapter} />)}
+				</div>
+			</Fragment>
+		)}
 	</article>
 </Layout>

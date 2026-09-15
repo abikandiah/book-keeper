@@ -6,6 +6,13 @@ import { branchExists, checkoutBranch, commitFile, createAndCheckoutBranch, isWo
 
 export const BOOKS_DIR = 'src/content/books';
 
+// Single source of truth for the `book/<slug>` naming convention — shared
+// with accept-book.ts and reject-book.ts, which otherwise had no reason to
+// duplicate this exact string template themselves.
+export function bookBranch(slug: string): string {
+	return `book/${slug}`;
+}
+
 export function slugify(title: string): string {
 	return title
 		.toLowerCase()
@@ -20,7 +27,7 @@ export function slugify(title: string): string {
 // pre-flight checks a book must pass before it's written and committed.
 export function checkPublishable(slug: string, force: boolean): void {
 	const filePath = path.join(BOOKS_DIR, `${slug}.json`);
-	const branch = `book/${slug}`;
+	const branch = bookBranch(slug);
 	const branchAlreadyExists = branchExists(branch);
 
 	if (!force) {
@@ -48,7 +55,7 @@ export function checkPublishable(slug: string, force: boolean): void {
 // repo stranded on a half-published branch that then blocks every future
 // run via checkPublishable's isWorkingTreeClean() check.
 export function publishBook(book: Book, slug: string, originalBranch: string, title: string): void {
-	const branch = `book/${slug}`;
+	const branch = bookBranch(slug);
 	const filePath = path.join(BOOKS_DIR, `${slug}.json`);
 
 	try {

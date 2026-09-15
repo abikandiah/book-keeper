@@ -11,6 +11,8 @@
     "generate": "tsx scripts/generate-book.ts",
     "generate:sandboxed": "scripts/generate-sandboxed.sh",
     "publish-book": "tsx scripts/publish-book.ts",
+    "accept": "tsx scripts/accept-book.ts",
+    "reject": "tsx scripts/reject-book.ts",
     "preview": "astro preview",
     "astro": "astro"
   },
