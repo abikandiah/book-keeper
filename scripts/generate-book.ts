@@ -17,6 +17,7 @@ import {
 	type Synthesis,
 } from '../src/content/schema';
 import { currentBranch, isGitRepo } from './lib/git';
+import { loadKnownFacts, type KnownFacts } from './lib/known-facts';
 import { log, logError } from './lib/log';
 import { createModel } from './lib/model';
 import { lookupEditionByIsbn, lookupIsbn } from './lib/openlibrary';
@@ -131,10 +132,14 @@ const BookGenState = Annotation.Root({
 	originalBranch: Annotation<string>({ reducer: overwrite, default: () => '' }),
 	author: Annotation<string | undefined>(),
 	year: Annotation<number | undefined>(),
-	// From --isbn, if given. Lets outlineNode resolve the exact edition's own
-	// title/author upfront and search against that instead of the reader's
-	// own paraphrase of the title.
-	isbnOverride: Annotation<string | undefined>(),
+	// From --isbn and/or --known (see scripts/lib/known-facts.ts, merged in
+	// main()): ground truth the reader already has for this exact edition,
+	// so outlineNode can treat it as fixed instead of re-deriving it from
+	// search. `chapters` is the strongest of these — when given, it skips
+	// outline search and consensus entirely (see outlineNode); the other
+	// fields just get threaded into the outline prompts as confirmed facts
+	// when search still runs.
+	knownFacts: Annotation<KnownFacts | undefined>(),
 	// A live Promise, not a resolved value — kicked off in outlineNode but
 	// deliberately not awaited there, so its network round-trip overlaps
 	// with the (much longer) parallel chapter fan-out instead of serializing
@@ -205,7 +210,10 @@ async function setupNode(state: State): Promise<Partial<State>> {
 // Promise.all) so one strategy's failure doesn't discard the other two
 // already-successful candidates — proceeds on any 1+ successes, only
 // throwing if all three failed.
-async function generateOutlineCandidates(searchTitle: string): Promise<OutlineCandidate[]> {
+async function generateOutlineCandidates(
+	searchTitle: string,
+	knownFacts?: { author?: string; year?: number },
+): Promise<OutlineCandidate[]> {
 	const settled = await Promise.allSettled(
 		OUTLINE_SEARCH_STRATEGIES.map(async (strategy): Promise<OutlineCandidate> => {
 			const results = await searchProvider.search(
@@ -213,7 +221,9 @@ async function generateOutlineCandidates(searchTitle: string): Promise<OutlineCa
 				strategy.maxResults,
 				{ excludeDomains: strategy.excludeDomains, includeDomains: strategy.includeDomains },
 			);
-			const outline = await model.withStructuredOutput(outlineSchema).invoke(buildOutlinePrompt(searchTitle, results));
+			const outline = await model
+				.withStructuredOutput(outlineSchema)
+				.invoke(buildOutlinePrompt(searchTitle, results, knownFacts));
 			return { label: strategy.label, outline, results };
 		}),
 	);
@@ -246,49 +256,84 @@ async function generateOutlineCandidates(searchTitle: string): Promise<OutlineCa
 const MAX_OUTLINE_SPLIT_RETRIES = 1;
 
 async function outlineNode(state: State): Promise<Partial<State>> {
-	// --isbn pins the search to this exact edition's own published title
-	// (e.g. avoiding ambiguity between translations/editions) rather than
-	// however the reader phrased the CLI title. Its author/year — a direct
-	// lookup — also override the model's own guess below, once drafted.
-	// Never throws; a lookup miss just means no accuracy boost, not a
-	// failure.
-	let searchTitle = state.title;
+	const known = state.knownFacts;
+
+	// A known isbn pins the search to this exact edition's own published
+	// title (e.g. avoiding ambiguity between translations/editions) rather
+	// than however the reader phrased the CLI title. Its author/year — a
+	// direct lookup — also override the model's own guess below, once
+	// drafted. A known `title` (a reader-confirmed fact, not just a lookup
+	// match) wins over both. Never throws; a lookup miss just means no
+	// accuracy boost, not a failure.
+	let searchTitle = known?.title ?? state.title;
 	let editionMeta: Awaited<ReturnType<typeof lookupEditionByIsbn>>;
-	if (state.isbnOverride) {
-		editionMeta = await lookupEditionByIsbn(state.isbnOverride);
-		if (editionMeta?.title) searchTitle = editionMeta.title;
+	if (known?.isbn) {
+		editionMeta = await lookupEditionByIsbn(known.isbn);
+		if (!known?.title && editionMeta?.title) searchTitle = editionMeta.title;
 	}
 
-	// Attempt 1 runs unconditionally before the retry loop, so `consensus`
-	// always holds a real value below — never `undefined`, so no non-null
-	// assertions needed at any use site.
-	log('Searching for outline (3 independent searches + a consensus pass)...');
-	const firstCandidates = await generateOutlineCandidates(searchTitle);
-	let consensus = await model
-		.withStructuredOutput(outlineConsensusSchema)
-		.invoke(buildOutlineConsensusPrompt(searchTitle, firstCandidates));
+	let title: string;
+	let author: string | undefined;
+	let year: number | undefined;
+	let chapterTitles: string[];
 
-	for (let attempt = 2; consensus.agreement === 'split' && attempt <= MAX_OUTLINE_SPLIT_RETRIES + 1; attempt++) {
+	// A known chapter list is the reader directly asserting the real,
+	// ordered table of contents as fact — trusted outright, skipping outline
+	// search and consensus entirely. Re-deriving it from search afterward
+	// would only risk *introducing* doubt into something already certain,
+	// not removing it. title/author/year are similarly locked wherever
+	// known.
+	if (known?.chapters && known.chapters.length > 0) {
+		title = known?.title ?? searchTitle;
+		author = known?.author ?? editionMeta?.author;
+		year = known?.year ?? editionMeta?.year;
+		chapterTitles = known.chapters;
+
 		log(
-			`  outline: split agreement (${consensus.notes ?? 'no reasoning given'}) — retrying with fresh searches.`,
+			`Using ${chapterTitles.length} known chapters for "${title}"` +
+				`${author ? ` by ${author}` : ''}${year ? ` (${year})` : ''} — skipping outline search.`,
 		);
-		const candidates = await generateOutlineCandidates(searchTitle);
-		consensus = await model
+	} else {
+		// Whatever *was* known (author/year/title, just not the chapter
+		// list) still gets threaded into the prompts below as confirmed
+		// fact, so the model only has to work out what's actually missing
+		// instead of re-guessing something already certain.
+		const knownForPrompt = { title: known?.title, author: known?.author, year: known?.year };
+
+		// Attempt 1 runs unconditionally before the retry loop, so
+		// `consensus` always holds a real value below — never `undefined`,
+		// so no non-null assertions needed at any use site.
+		log('Searching for outline (3 independent searches + a consensus pass)...');
+		const firstCandidates = await generateOutlineCandidates(searchTitle, knownForPrompt);
+		let consensus = await model
 			.withStructuredOutput(outlineConsensusSchema)
-			.invoke(buildOutlineConsensusPrompt(searchTitle, candidates));
+			.invoke(buildOutlineConsensusPrompt(searchTitle, firstCandidates, knownForPrompt));
+
+		for (let attempt = 2; consensus.agreement === 'split' && attempt <= MAX_OUTLINE_SPLIT_RETRIES + 1; attempt++) {
+			log(
+				`  outline: split agreement (${consensus.notes ?? 'no reasoning given'}) — retrying with fresh searches.`,
+			);
+			const candidates = await generateOutlineCandidates(searchTitle, knownForPrompt);
+			consensus = await model
+				.withStructuredOutput(outlineConsensusSchema)
+				.invoke(buildOutlineConsensusPrompt(searchTitle, candidates, knownForPrompt));
+		}
+
+		// A known fact beats a direct ISBN lookup, which beats the model's
+		// own guess.
+		title = known?.title ?? consensus.title;
+		author = known?.author ?? editionMeta?.author ?? consensus.author;
+		year = known?.year ?? editionMeta?.year ?? consensus.year;
+		chapterTitles = consensus.chapter_titles;
+
+		log(
+			`Found ${chapterTitles.length} chapters for "${title}"` +
+				`${author ? ` by ${author}` : ''}${year ? ` (${year})` : ''}` +
+				(consensus.agreement === 'unanimous'
+					? ''
+					: ` (${consensus.agreement} agreement among candidates — ${consensus.notes ?? 'no reasoning given'})`),
+		);
 	}
-
-	// A direct ISBN lookup beats the model's own guess when one's available.
-	const author = editionMeta?.author ?? consensus.author;
-	const year = editionMeta?.year ?? consensus.year;
-
-	log(
-		`Found ${consensus.chapter_titles.length} chapters for "${consensus.title}"` +
-			`${author ? ` by ${author}` : ''}${year ? ` (${year})` : ''}` +
-			(consensus.agreement === 'unanimous'
-				? ''
-				: ` (${consensus.agreement} agreement among candidates — ${consensus.notes ?? 'no reasoning given'})`),
-	);
 
 	// Resolved via a direct Open Library API lookup, not the model — see
 	// scripts/lib/openlibrary.ts. Deliberately NOT awaited here: isbn/
@@ -296,22 +341,25 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 	// this off without blocking lets its round-trip overlap with the
 	// parallel chapter fan-out instead of serializing in front of it. Never
 	// throws; `undefined` fields just mean no cover image/page count,
-	// handled gracefully downstream.
-	const isbnPromise = state.isbnOverride
-		? Promise.resolve({ isbn: state.isbnOverride, pageCount: editionMeta?.pageCount })
-		: lookupIsbn(consensus.title, author).then(async (isbn) => {
-				if (!isbn) return undefined;
+	// handled gracefully downstream. A known `page_count` is applied
+	// wherever an isbn ends up resolved (given or looked-up) *and* kept even
+	// when no isbn is found at all — it's a fact the reader supplied
+	// directly, not something contingent on the lookup succeeding.
+	const isbnPromise = known?.isbn
+		? Promise.resolve({ isbn: known.isbn, pageCount: known?.page_count ?? editionMeta?.pageCount })
+		: lookupIsbn(title, author).then(async (isbn) => {
+				if (!isbn) return known?.page_count !== undefined ? { isbn: undefined, pageCount: known.page_count } : undefined;
 				const meta = await lookupEditionByIsbn(isbn);
-				return { isbn, pageCount: meta?.pageCount };
+				return { isbn, pageCount: known?.page_count ?? meta?.pageCount };
 			});
 
 	return {
-		title: consensus.title,
+		title,
 		author,
 		year,
 		isbnPromise,
-		chapterTitles: consensus.chapter_titles,
-		totalChapters: consensus.chapter_titles.length,
+		chapterTitles,
+		totalChapters: chapterTitles.length,
 	};
 }
 
@@ -589,13 +637,23 @@ const app = graph.compile();
 // ---------------------------------------------------------------------------
 // CLI entrypoint
 // ---------------------------------------------------------------------------
-// Pulls --notes <path> and --emit-json <path> (value-taking flags) out
-// before the remaining args are joined back into the title, and reads the
-// notes file eagerly so a bad path fails fast rather than partway through
-// the pipeline.
+const USAGE =
+	'Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>] [--emit-json <path>] [--isbn <isbn>] [--known <path>]';
+
+// Pulls --notes/--known/--emit-json <path> and --isbn <isbn> (value-taking
+// flags) out before the remaining args are joined back into the title, and
+// reads the notes/known-facts files eagerly so a bad path fails fast rather
+// than partway through the pipeline.
 function parseArgs(
 	argv: string[],
-): { title: string; force: boolean; personalNotes?: string; emitJsonPath?: string; isbn?: string } {
+): {
+	title: string;
+	force: boolean;
+	personalNotes?: string;
+	emitJsonPath?: string;
+	isbn?: string;
+	known?: KnownFacts;
+} {
 	// `pnpm run generate -- "Title"` forwards a literal `--` through to this
 	// script instead of stripping it (confirmed on pnpm 12.x) — dropped here
 	// so it doesn't end up folded into the title below.
@@ -627,8 +685,17 @@ function parseArgs(
 		args.splice(isbnIndex, 2);
 	}
 
+	const knownIndex = args.indexOf('--known');
+	let known: KnownFacts | undefined;
+	if (knownIndex !== -1) {
+		const knownPath = args[knownIndex + 1];
+		if (!knownPath) throw new Error('--known requires a file path argument.');
+		known = loadKnownFacts(knownPath);
+		args.splice(knownIndex, 2);
+	}
+
 	const title = args.filter((a) => a !== '--force').join(' ').trim();
-	return { title, force, personalNotes, emitJsonPath, isbn };
+	return { title, force, personalNotes, emitJsonPath, isbn, known };
 }
 
 async function main() {
@@ -636,8 +703,9 @@ async function main() {
 	let force: boolean;
 	let personalNotes: string | undefined;
 	let isbn: string | undefined;
+	let known: KnownFacts | undefined;
 	try {
-		({ title, force, personalNotes, emitJsonPath, isbn } = parseArgs(process.argv.slice(2)));
+		({ title, force, personalNotes, emitJsonPath, isbn, known } = parseArgs(process.argv.slice(2)));
 	} catch (err) {
 		console.error(err instanceof Error ? err.message : String(err));
 		process.exit(1);
@@ -645,19 +713,34 @@ async function main() {
 	}
 
 	if (!title) {
-		console.error(
-			'Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>] [--emit-json <path>] [--isbn <isbn>]',
-		);
+		console.error(USAGE);
 		process.exit(1);
 		return;
 	}
+
+	// --known's own `notes` field and --notes are complementary, not
+	// exclusive — a reader might keep durable per-edition facts in one and
+	// jot fresh, this-reading-specific notes in the other. Both, either, or
+	// neither may be present.
+	const combinedNotes = [known?.notes, personalNotes].filter((n): n is string => !!n).join('\n\n');
+
+	// --isbn wins over --known's isbn when both are given — it's the more
+	// explicit, invocation-specific override. `undefined` (rather than
+	// omitting `knownFacts` entirely) whenever neither flag supplied
+	// anything, so outlineNode only has one shape (`state.knownFacts?.x`) to
+	// deal with regardless of which flags were used.
+	const knownFacts: KnownFacts | undefined =
+		known || isbn ? { ...known, isbn: isbn ?? known?.isbn } : undefined;
 
 	try {
 		searchProvider = new TavilyProvider(requireEnv('TAVILY_API_KEY'));
 		model = createModel();
 		chapterLimit = pLimit(CHAPTER_CONCURRENCY);
 
-		await app.invoke({ title, force, personalNotes, isbnOverride: isbn }, { recursionLimit: 50 });
+		await app.invoke(
+			{ title, force, personalNotes: combinedNotes || undefined, knownFacts },
+			{ recursionLimit: 50 },
+		);
 	} catch (err) {
 		logError(`\nGeneration failed: ${err instanceof Error ? err.message : err}`);
 		process.exit(1);

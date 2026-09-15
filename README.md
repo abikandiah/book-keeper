@@ -42,6 +42,35 @@ Generation also requires Docker (see below).
    pnpm run generate:sandboxed -- "Fooled by Randomness" --notes ./my-notes.txt
    ```
 
+   Already know the exact edition — author, ISBN, publication year, or even
+   the real chapter list — from the book itself? Pass it as ground truth
+   instead of leaving the outline stage to reconstruct it from web search.
+   Any field you supply is treated as fixed; a full `chapters` list skips
+   the outline search entirely:
+
+   ```
+   pnpm run generate:sandboxed -- "Fooled by Randomness" --known ./known.json
+   ```
+
+   ```json
+   {
+     "title": "Fooled by Randomness",
+     "author": "Nassim Nicholas Taleb",
+     "year": 2001,
+     "isbn": "0812975219",
+     "page_count": 224,
+     "chapters": [
+       "Chapter 1: If You're So Rich, Why Aren't You So Smart?",
+       "Chapter 2: A Bizarre Accounting Method"
+     ]
+   }
+   ```
+
+   Every field is optional — supply only what you actually know. `chapters`,
+   if given, must be the *complete*, real, ordered list — it's trusted
+   outright with no verification, so don't paste in a partial list or leave
+   a placeholder entry in it.
+
    This runs the pipeline (title → outline → per-chapter detail → synthesis
    → validation) inside a locked-down, read-only, no-git-access container,
    then — once the sandbox has produced a validated `book.json` — creates a

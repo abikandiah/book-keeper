@@ -36,6 +36,22 @@ what actually struck *you* when reading — the notes are a lightweight way to
 ground the summary in your own reading experience without turning your raw
 (possibly messy) notes into published site content.
 
+Also optionally: `--known <path>` (see `scripts/lib/known-facts.ts`) points at
+a JSON file of ground truth the reader already has for this exact
+edition — `title`, `author`, `year`, `isbn`, `page_count`, `chapters`
+(the real, ordered table of contents), and/or `notes` — all fields optional.
+This exists because the Outline stage (below) is fundamentally reconstructing
+facts from noisy web search, which is unnecessary work — and a source of
+avoidable error — when the reader already knows them cold (they're holding
+the book). Whatever's supplied is treated as fixed rather than re-derived:
+a full `chapters` list skips outline search and consensus entirely; a partial
+set of known fields (e.g. author/year but not the chapter list) still gets
+threaded into the outline/consensus prompts as confirmed fact, so the model
+only has to resolve what's actually missing. `--isbn` and `--notes` remain
+available as their own flags too; when both a flag and `--known`'s matching
+field are given, the standalone flag wins for `isbn`, and both are combined
+for `notes`.
+
 ## Why multiple stages instead of one prompt
 
 A single "summarize this book" prompt produces inconsistent structure across
@@ -379,6 +395,16 @@ not only one that drafted from thin evidence. A `"split"` verdict (no clear
 consensus) gets one bounded retry with a fresh round of searches; anything
 else is accepted as-is. See `generateOutlineCandidates`/`outlineNode` in
 `scripts/generate-book.ts`.
+
+**`--known` short-circuit:** when `--known`'s `chapters` field is present,
+this entire search-and-consensus process is skipped — the supplied list is
+trusted outright as `chapter_titles`, and any of `title`/`author`/`year` it
+also supplies are used as-is rather than reconciled from candidates. When
+`chapters` is absent but some of `title`/`author`/`year` are known, those
+still run through search+consensus as before, just with the known fields
+passed into `buildOutlinePrompt`/`buildOutlineConsensusPrompt` as facts the
+model shouldn't second-guess — only the genuinely unknown fields are left for
+the candidates/consensus to actually resolve.
 
 **Cover lookup (not model output):** after the outline call, look up an ISBN
 via `scripts/lib/openlibrary.ts`'s `lookupIsbn(title, author)` — a direct

@@ -8,16 +8,34 @@ export function formatSearchResults(results: SearchResult[]): string {
 		.join('\n\n');
 }
 
-export function buildOutlinePrompt(title: string, results: SearchResult[]): string {
-	return `You are researching the non-fiction book "${title}" to build a structured summary.
+// Shared by buildOutlinePrompt and buildOutlineConsensusPrompt — both thread
+// reader-confirmed --known facts into their prompt as a labeled block the
+// model shouldn't second-guess. Returns '' (nothing rendered) when no field
+// is present, so call sites can always splice this in unconditionally.
+function formatConfirmedFacts(knownFacts?: { title?: string; author?: string; year?: number }): string {
+	const lines = [
+		knownFacts?.title ? `- Title: ${knownFacts.title}` : null,
+		knownFacts?.author ? `- Author: ${knownFacts.author}` : null,
+		knownFacts?.year ? `- Publication year: ${knownFacts.year}` : null,
+	].filter((line): line is string => line !== null);
+	if (lines.length === 0) return '';
+	return `\nThe reader has already confirmed these facts directly — treat them as certain, do not second-guess or override them from other evidence below:\n${lines.join('\n')}\n`;
+}
 
+export function buildOutlinePrompt(
+	title: string,
+	results: SearchResult[],
+	knownFacts?: { author?: string; year?: number },
+): string {
+	return `You are researching the non-fiction book "${title}" to build a structured summary.
+${formatConfirmedFacts(knownFacts)}
 Here is what web search turned up about this book:
 
 ${formatSearchResults(results)}
 
 Based on this, determine:
-- The book's author (full name)
-- The publication year
+- The book's author (full name)${knownFacts?.author ? ' — already confirmed above' : ''}
+- The publication year${knownFacts?.year ? ' — already confirmed above' : ''}
 - The book's actual chapter/section list, in order, using the real chapter titles as published — not a generic or invented structure
 
 Return only what the search results support. If a detail is genuinely not
@@ -89,7 +107,11 @@ export interface OutlineCandidate {
 	results: SearchResult[];
 }
 
-export function buildOutlineConsensusPrompt(title: string, candidates: OutlineCandidate[]): string {
+export function buildOutlineConsensusPrompt(
+	title: string,
+	candidates: OutlineCandidate[],
+	knownFacts?: { title?: string; author?: string; year?: number },
+): string {
 	const rendered = candidates
 		.map((c, i) => {
 			const o = c.outline;
@@ -106,7 +128,7 @@ export function buildOutlineConsensusPrompt(title: string, candidates: OutlineCa
 chapter lists for the non-fiction book "${title}" — each drafted from a
 different search strategy (general web, bookseller listings, library
 catalogs), so they may disagree.
-
+${formatConfirmedFacts(knownFacts)}
 ${rendered}
 
 Determine the single, correct, real chapter/section list as actually

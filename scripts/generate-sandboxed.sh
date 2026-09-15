@@ -8,14 +8,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+usage="Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>] [--isbn <isbn>] [--known <path>]"
+
 if [ $# -lt 1 ]; then
-	echo "Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>] [--isbn <isbn>]" >&2
+	echo "$usage" >&2
 	exit 1
 fi
 
 force=""
 notes_path=""
 isbn=""
+known_path=""
 title_parts=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -46,6 +49,14 @@ while [ $# -gt 0 ]; do
 		fi
 		shift 2
 		;;
+	--known)
+		known_path="${2:-}"
+		if [ -z "$known_path" ]; then
+			echo "Error: --known requires a file path argument." >&2
+			exit 1
+		fi
+		shift 2
+		;;
 	*)
 		title_parts+=("$1")
 		shift
@@ -55,7 +66,7 @@ done
 
 title="${title_parts[*]}"
 if [ -z "$title" ]; then
-	echo "Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>] [--isbn <isbn>]" >&2
+	echo "$usage" >&2
 	exit 1
 fi
 
@@ -141,6 +152,15 @@ if [ -n "$notes_path" ]; then
 	notes_dir="$(cd "$(dirname "$notes_path")" && pwd)"
 	docker_volume_args+=(-v "$notes_dir/$(basename "$notes_path"):/notes.txt:ro")
 	container_args+=(--notes /notes.txt)
+fi
+if [ -n "$known_path" ]; then
+	if [ ! -f "$known_path" ]; then
+		echo "Error: --known file not found: $known_path" >&2
+		exit 1
+	fi
+	known_dir="$(cd "$(dirname "$known_path")" && pwd)"
+	docker_volume_args+=(-v "$known_dir/$(basename "$known_path"):/known.json:ro")
+	container_args+=(--known /known.json)
 fi
 
 echo "Running generation in sandbox..."
