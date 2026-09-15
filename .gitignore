@@ -21,6 +21,11 @@ pnpm-debug.log*
 # publish-book.ts on the host
 .generate-output/
 
+# per-book --known input files (see known/README.md) -- generation-time
+# input, not site content; keep the template, ignore ad hoc ones
+known/*.json
+!known/example.json
+
 # macOS-specific files
 .DS_Store
 

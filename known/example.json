@@ -1,0 +1,12 @@
+{
+  "title": "<exact title, as printed on the cover/title page of this edition>",
+  "author": "<author or translator, full name>",
+  "year": 2001,
+  "isbn": "<ISBN-13 or ISBN-10, digits only>",
+  "page_count": 224,
+  "chapters": [
+    "<Chapter 1's title text, exactly as published>",
+    "<Chapter 2's title text, exactly as published>"
+  ],
+  "notes": "<optional: your own fresh notes/highlights from this reading>"
+}
