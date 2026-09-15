@@ -3,16 +3,13 @@
   "title": "Modern Man In Search Of A Soul",
   "author": "C.G. Jung",
   "year": 1955,
-  "isbn": "9780156612067 ",
+  "isbn": "9780156612067",
+  "page_count": 256,
   "date_added": "2026-09-15",
   "verified": false,
-  "one_line_takeaway": "In *Modern Man in Search of a Soul*, Jung argues that modern individuals must engage their unconscious psyche through dream analysis, archetypal symbolism, and a spiritual approach to psychotherapy to overcome existential emptiness and achieve individuation.",
+  "one_line_takeaway": "In Modern Man in Search of a Soul, Jung argues that modern individuals must engage their unconscious psyche through dream analysis, archetypal symbolism, and a spiritual approach to psychotherapy to overcome existential emptiness and achieve individuation.",
   "synopsis": "Modern Man in Search of a Soul is a seminal work by C.G. Jung that addresses the psychological and spiritual crises of the modern era. The book, a collection of essays, systematically explores the human psyche's depths, emphasizing the necessity of integrating the conscious and unconscious for self-realization. Jung begins by advocating for dream analysis as a practical tool to access the unconscious, revealing archetypes and universal truths essential for individuation. He critiques contemporary psychotherapy for its reductionist focus on antisocial urges and neglect of spiritual yearnings, proposing instead a transformative approach where therapists engage in self-analysis and dialogic relationships with patients. Through discussions of psychological types, life stages, and contrasts with Freudian theory, Jung outlines a path toward wholeness that acknowledges the archaic roots of modern consciousness and the interconnectedness of psychology and literature. Ultimately, the book argues that modern man's loss of meaning due to materialism and secularism can only be remedied by a conscious confrontation with the unconscious, fostering a new spiritual orientation born from personal experience.",
-  "tags": [
-    "psychology",
-    "religion-spirituality",
-    "self-help"
-  ],
+  "tags": ["psychology", "religion-spirituality", "self-help"],
   "chapters": [
     {
       "number": 1,
