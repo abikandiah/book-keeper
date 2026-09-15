@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { Annotation, END, START, Send, StateGraph } from '@langchain/langgraph';
 import pLimit from 'p-limit';
 import { z } from 'zod';
@@ -731,8 +732,9 @@ const app = graph.compile();
 // CLI entrypoint
 // ---------------------------------------------------------------------------
 const USAGE =
-	'Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>] [--emit-json <path>] [--isbn <isbn>] ' +
-	'[--known <path>] [--trust-known]';
+	'Usage: pnpm run generate -- ["Book Title"] [--force] [--notes <path>] [--emit-json <path>] [--isbn <isbn>] ' +
+	'[--known <path>] [--trust-known]\n' +
+	'("Book Title" may be omitted when --known is given — it falls back to the known file\'s own name.)';
 
 // Guards every value-taking flag below against silently swallowing the
 // *next* flag as its own value when the actual value was left off (e.g.
@@ -792,13 +794,22 @@ function parseArgs(
 
 	const knownIndex = args.indexOf('--known');
 	let known: KnownFacts | undefined;
+	let knownPath: string | undefined;
 	if (knownIndex !== -1) {
-		const knownPath = readFlagValue(args, knownIndex, '--known');
+		knownPath = readFlagValue(args, knownIndex, '--known');
 		known = loadKnownFacts(knownPath);
 		args.splice(knownIndex, 2);
 	}
 
-	const title = args.filter((a) => a !== '--force' && a !== '--trust-known').join(' ').trim();
+	const typedTitle = args.filter((a) => a !== '--force' && a !== '--trust-known').join(' ').trim();
+	// Falls back to the --known file's own basename (e.g.
+	// `known/the-undiscovered-self.json` -> "the-undiscovered-self") when no
+	// title was typed, so `--known <path>` can work standalone as long as
+	// the file's named after the book. Only seeds the working slug and the
+	// last-resort search-title fallback — the *published* title still comes
+	// from known.title (if given) via outlineNode's own precedence, so this
+	// never papers over a missing known.title with a worse one.
+	const title = typedTitle || (knownPath ? path.basename(knownPath, '.json') : '');
 	return { title, force, personalNotes, emitJsonPath, isbn, known, trustKnown };
 }
 

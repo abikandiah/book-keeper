@@ -7,15 +7,21 @@ reconstructing it from web search. See `docs/blueprint/02-generation-pipeline.md
 
 ## Usage
 
-1. Copy `example.json` to a new file here, e.g. `known/my-book.json`.
+1. Copy `example.json` to a new file here, named after the book, e.g.
+   `known/my-book.json` — the filename becomes the book's slug (see below).
 2. Fill in whatever you actually know; **delete any field you don't** —
    every field is optional, and a genuinely unknown field should be left out
    entirely rather than guessed at.
 3. Pass it to generation:
 
    ```
-   pnpm run generate:sandboxed -- "Book Title" --known known/my-book.json
+   pnpm run generate:sandboxed -- --known known/my-book.json
    ```
+
+   The title argument is optional here — omitting it, as above, falls back
+   to the known file's own basename (`my-book.json` → slug `my-book`). Pass
+   one explicitly (`... "My Book" --known known/my-book.json`) if you want
+   the slug to be something other than the filename.
 
 Files you add here besides `example.json` are gitignored (see
 `../.gitignore`) — they're per-book generation input, not site content.

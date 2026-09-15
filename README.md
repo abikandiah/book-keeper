@@ -51,8 +51,14 @@ Generation also requires Docker (see below).
    whatever you actually know, delete the rest, then:
 
    ```
-   pnpm run generate:sandboxed -- "Fooled by Randomness" --known known/fooled-by-randomness.json
+   pnpm run generate:sandboxed -- --known known/fooled-by-randomness.json
    ```
+
+   The title argument can be dropped, as above, when `--known` is given —
+   it falls back to the known file's own name (`fooled-by-randomness.json`
+   → slug `fooled-by-randomness`), so naming the file after the book gets
+   you both. Pass a title explicitly instead if you'd rather the slug not
+   match the filename.
 
    Every field is optional — supply only what you actually know. `chapters`,
    if given, must be the *complete*, real, ordered list — that part is on

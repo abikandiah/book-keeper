@@ -52,6 +52,15 @@ available as their own flags too; when both a flag and `--known`'s matching
 field are given, the standalone flag wins for `isbn`, and both are combined
 for `notes`.
 
+The CLI's positional title argument itself is optional whenever `--known` is
+given — `parseArgs` falls back to the known file's own basename (stripped of
+`.json`) as the working title/slug seed when none was typed, so `--known
+known/foo.json` alone is enough as long as the file's named after the book.
+This only ever seeds `setupNode`'s slug derivation and the last-resort
+search-title fallback (`resolveKnownSearchTitle`) — the *published* title
+still comes from `knownFacts.title` via outlineNode's own precedence chain,
+so a filename-derived stand-in never displaces a real one.
+
 ## Why multiple stages instead of one prompt
 
 A single "summarize this book" prompt produces inconsistent structure across

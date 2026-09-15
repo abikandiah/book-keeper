@@ -8,7 +8,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-usage="Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>] [--isbn <isbn>] [--known <path>] [--trust-known]"
+usage="Usage: scripts/generate-sandboxed.sh [\"Book Title\"] [--force] [--notes <path>] [--isbn <isbn>] [--known <path>] [--trust-known]
+(\"Book Title\" may be omitted when --known is given -- it falls back to the known file's own name.)"
 
 if [ $# -lt 1 ]; then
 	echo "$usage" >&2
@@ -80,6 +81,17 @@ while [ $# -gt 0 ]; do
 done
 
 title="${title_parts[*]}"
+# Falls back to the --known file's own basename (e.g.
+# known/the-undiscovered-self.json -> "the-undiscovered-self") when no title
+# was typed, so `--known <path>` can work standalone as long as the file's
+# named after the book. Only seeds the working slug/branch name -- the
+# *published* title still comes from the known file's own "title" field via
+# generate-book.ts's own precedence, so this never papers over a missing one
+# with a worse one. Plain `basename`, not jq -- no need to parse the JSON at
+# all just to get this fallback.
+if [ -z "$title" ] && [ -n "$known_path" ]; then
+	title="$(basename "$known_path" .json)"
+fi
 if [ -z "$title" ]; then
 	echo "$usage" >&2
 	exit 1
