@@ -55,9 +55,13 @@ Generation also requires Docker (see below).
    ```
 
    Every field is optional — supply only what you actually know. `chapters`,
-   if given, must be the *complete*, real, ordered list — it's trusted
-   outright with no verification, so don't paste in a partial list or leave
-   a placeholder entry in it (see `known/README.md` for the full rundown).
+   if given, must be the *complete*, real, ordered list — that part is on
+   you, not automated: a quick search + a narrow model check runs first, but
+   it only catches a specific, obvious mistake (wrong edition, a leftover
+   template placeholder), never a merely incomplete or partial list, which
+   it's deliberately not designed to flag. A flagged false positive can be
+   overridden with `--trust-known` (see `known/README.md` for the full
+   rundown).
 
    This runs the pipeline (title → outline → per-chapter detail → synthesis
    → validation) inside a locked-down, read-only, no-git-access container,

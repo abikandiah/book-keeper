@@ -24,6 +24,7 @@ import { lookupEditionByIsbn, lookupIsbn } from './lib/openlibrary';
 import {
 	buildChapterCritiquePrompt,
 	buildChapterPrompt,
+	buildKnownFactsCritiquePrompt,
 	buildOutlineConsensusPrompt,
 	buildOutlinePrompt,
 	buildRepairPrompt,
@@ -69,11 +70,15 @@ interface OutlineSearchStrategy {
 	includeDomains?: string[];
 }
 
+// books.google.com preview pages only show a partial chapter list, with
+// nothing marking them as incomplete — the specific source that caused the
+// failure below. Shared (not just copied) between OUTLINE_SEARCH_STRATEGIES
+// and verifyKnownFactsNode's own chapter-list search so a future edit to
+// this exclusion can't silently apply to only one of the two.
+const CHAPTER_LIST_SEARCH_EXCLUDE_DOMAINS = ['books.google.com'];
+
 const OUTLINE_SEARCH_STRATEGIES: OutlineSearchStrategy[] = [
-	// books.google.com preview pages only show a partial chapter list, with
-	// nothing marking them as incomplete — the specific source that caused
-	// the failure above.
-	{ label: 'general web search', maxResults: 8, excludeDomains: ['books.google.com'] },
+	{ label: 'general web search', maxResults: 8, excludeDomains: CHAPTER_LIST_SEARCH_EXCLUDE_DOMAINS },
 	// Product/listing pages that tend to show a real table of contents.
 	{
 		label: 'bookseller listings',
@@ -140,6 +145,19 @@ const BookGenState = Annotation.Root({
 	// fields just get threaded into the outline prompts as confirmed facts
 	// when search still runs.
 	knownFacts: Annotation<KnownFacts | undefined>(),
+	// From --trust-known. Skips verifyKnownFactsNode's search+critique of
+	// `knownFacts.chapters` entirely — for a file you've already verified
+	// yourself and want to stop re-litigating, e.g. after a prior run's
+	// critique flagged a false positive (thin/wrong search grounding, not an
+	// actual mistake in the file).
+	trustKnown: Annotation<boolean>({ reducer: overwrite, default: () => false }),
+	// Resolved once in verifyKnownFactsNode (which runs for every --known
+	// run, right after setup) whenever `knownFacts.isbn` is given, so
+	// outlineNode can reuse it instead of looking the same isbn up a second
+	// time. Also lets verification search against the isbn-resolved edition
+	// title rather than the reader's own (possibly generic/ambiguous) CLI
+	// title when `knownFacts.title` itself wasn't given.
+	editionMeta: Annotation<Awaited<ReturnType<typeof lookupEditionByIsbn>> | undefined>(),
 	// A live Promise, not a resolved value — kicked off in outlineNode but
 	// deliberately not awaited there, so its network round-trip overlaps
 	// with the (much longer) parallel chapter fan-out instead of serializing
@@ -248,6 +266,80 @@ async function generateOutlineCandidates(
 	return candidates;
 }
 
+// Shared by verifyKnownFactsNode and outlineNode: a known `title` beats an
+// isbn-resolved edition title, which beats the reader's own CLI-typed title.
+// Treats an empty string as "not given" (not just `undefined`) — knownFacts
+// schema doesn't reject `""`, and falling through here matters for both
+// callers, not just one of them.
+function resolveKnownSearchTitle(
+	known: KnownFacts | undefined,
+	editionMeta: Awaited<ReturnType<typeof lookupEditionByIsbn>>,
+	fallbackTitle: string,
+): string {
+	return known?.title || editionMeta?.title || fallbackTitle;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 0.5 — Known-edition resolution + chapter-list verification
+// ---------------------------------------------------------------------------
+// Runs for every --known run, right after setup. Always resolves
+// `knownFacts.isbn` (if given) to editionMeta up front — shared with
+// outlineNode below so the isbn is only ever looked up once, and so the
+// verification search below can target the isbn-resolved edition title
+// rather than a possibly generic/ambiguous CLI title. The verification
+// search+critique itself only runs when --known's `chapters` is given — the
+// one --known field with zero other check (outlineNode trusts it outright
+// and skips outline search/consensus entirely for it). See
+// buildKnownFactsCritiquePrompt for why the critique is narrow — a
+// hand-typed file deserves a typo/wrong-edition check, not a re-litigation
+// of whether the reader knows their own book. A confirmed mistake throws
+// (caught by main()'s catch, printed, process exits) rather than blocking
+// silently or auto-fixing; a verification call that itself fails (network/API
+// hiccup) degrades to "proceeding on trust" rather than aborting the run —
+// this check is a safety net, not a new hard dependency.
+async function verifyKnownFactsNode(state: State): Promise<Partial<State>> {
+	const known = state.knownFacts;
+	const editionMeta = known?.isbn ? await lookupEditionByIsbn(known.isbn) : undefined;
+
+	if (!known?.chapters?.length || state.trustKnown) return { editionMeta };
+
+	const searchTitle = resolveKnownSearchTitle(known, editionMeta, state.title);
+	log(`Verifying known chapter list for "${searchTitle}" against a quick search...`);
+
+	let critique: Critique;
+	try {
+		const results = await searchProvider.search(`"${searchTitle}" chapter list table of contents`, 5, {
+			excludeDomains: CHAPTER_LIST_SEARCH_EXCLUDE_DOMAINS,
+		});
+		critique = await model.withStructuredOutput(critiqueSchema).invoke(buildKnownFactsCritiquePrompt(known, results));
+	} catch (err) {
+		// Deliberately fails open, not closed: this check exists to catch a
+		// *reader's* mistake in the known file, not to become a new hard
+		// dependency for a --known run that would otherwise need no search
+		// at all. logError (not log) so it's visible on stderr even when
+		// stdout is redirected/scrolled past — a silently-broken safety net
+		// (e.g. a real prompt/schema bug, not just a network blip) is exactly
+		// the failure mode most likely to go unnoticed otherwise.
+		logError(
+			`  known-facts verification could not complete (${err instanceof Error ? err.message : err}) — ` +
+				'proceeding WITHOUT this check.',
+		);
+		return { editionMeta };
+	}
+
+	if (!critique.plausible) {
+		const concerns = critique.concerns.length > 0 ? critique.concerns.map((c) => `  - ${c}`).join('\n') : '  (no specifics given)';
+		throw new Error(
+			`--known file looks inconsistent with what search found for "${searchTitle}":\n${concerns}` +
+				'\n\nIf you\'ve reviewed this and the known file is actually correct (search grounding ' +
+				'can be thin or wrong), re-run with --trust-known to skip this check.',
+		);
+	}
+
+	log('Known chapter list looks consistent with search — proceeding.');
+	return { editionMeta };
+}
+
 // Bounded to one retry, and only on a genuine "split" verdict — a "majority"
 // result already reflects reasonable confidence, not worth spending another
 // full round of searches on. A fresh round (new searches, not re-judging
@@ -257,6 +349,10 @@ const MAX_OUTLINE_SPLIT_RETRIES = 1;
 
 async function outlineNode(state: State): Promise<Partial<State>> {
 	const known = state.knownFacts;
+	// Resolved once in verifyKnownFactsNode, which runs immediately before
+	// this node for every --known run — reused here rather than looking the
+	// same isbn up a second time.
+	const editionMeta = state.editionMeta;
 
 	// A known isbn pins the search to this exact edition's own published
 	// title (e.g. avoiding ambiguity between translations/editions) rather
@@ -265,12 +361,7 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 	// drafted. A known `title` (a reader-confirmed fact, not just a lookup
 	// match) wins over both. Never throws; a lookup miss just means no
 	// accuracy boost, not a failure.
-	let searchTitle = known?.title ?? state.title;
-	let editionMeta: Awaited<ReturnType<typeof lookupEditionByIsbn>>;
-	if (known?.isbn) {
-		editionMeta = await lookupEditionByIsbn(known.isbn);
-		if (!known?.title && editionMeta?.title) searchTitle = editionMeta.title;
-	}
+	const searchTitle = resolveKnownSearchTitle(known, editionMeta, state.title);
 
 	let title: string;
 	let author: string | undefined;
@@ -602,6 +693,7 @@ async function emitNode(state: State): Promise<Partial<State>> {
 // ---------------------------------------------------------------------------
 const graph = new StateGraph(BookGenState)
 	.addNode('setup', setupNode)
+	.addNode('verifyKnown', verifyKnownFactsNode)
 	.addNode('outline', outlineNode)
 	.addNode('chapterDetail', chapterDetailNode)
 	.addNode('synthesize', synthesisNode)
@@ -611,7 +703,8 @@ const graph = new StateGraph(BookGenState)
 	.addNode('publish', publishNode)
 	.addNode('emit', emitNode)
 	.addEdge(START, 'setup')
-	.addEdge('setup', 'outline')
+	.addEdge('setup', 'verifyKnown')
+	.addEdge('verifyKnown', 'outline')
 	.addConditionalEdges('outline', dispatchChapters)
 	.addEdge('chapterDetail', 'synthesize')
 	.addEdge('synthesize', 'validate')
@@ -638,7 +731,20 @@ const app = graph.compile();
 // CLI entrypoint
 // ---------------------------------------------------------------------------
 const USAGE =
-	'Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>] [--emit-json <path>] [--isbn <isbn>] [--known <path>]';
+	'Usage: pnpm run generate -- "Book Title" [--force] [--notes <path>] [--emit-json <path>] [--isbn <isbn>] ' +
+	'[--known <path>] [--trust-known]';
+
+// Guards every value-taking flag below against silently swallowing the
+// *next* flag as its own value when the actual value was left off (e.g.
+// `--known --trust-known` with the path omitted) — without this, `--known`
+// would hand `loadKnownFacts` the literal string "--trust-known" as a path
+// and fail with a confusing ENOENT instead of a clear message, while
+// --trust-known itself silently never gets applied.
+function readFlagValue(args: string[], index: number, flag: string): string {
+	const value = args[index + 1];
+	if (!value || value.startsWith('--')) throw new Error(`${flag} requires a value.`);
+	return value;
+}
 
 // Pulls --notes/--known/--emit-json <path> and --isbn <isbn> (value-taking
 // flags) out before the remaining args are joined back into the title, and
@@ -653,18 +759,19 @@ function parseArgs(
 	emitJsonPath?: string;
 	isbn?: string;
 	known?: KnownFacts;
+	trustKnown: boolean;
 } {
 	// `pnpm run generate -- "Title"` forwards a literal `--` through to this
 	// script instead of stripping it (confirmed on pnpm 12.x) — dropped here
 	// so it doesn't end up folded into the title below.
 	const args = argv.filter((a) => a !== '--');
 	const force = args.includes('--force');
+	const trustKnown = args.includes('--trust-known');
 
 	const notesIndex = args.indexOf('--notes');
 	let personalNotes: string | undefined;
 	if (notesIndex !== -1) {
-		const notesPath = args[notesIndex + 1];
-		if (!notesPath) throw new Error('--notes requires a file path argument.');
+		const notesPath = readFlagValue(args, notesIndex, '--notes');
 		personalNotes = fs.readFileSync(notesPath, 'utf-8');
 		args.splice(notesIndex, 2);
 	}
@@ -672,30 +779,27 @@ function parseArgs(
 	const emitJsonIndex = args.indexOf('--emit-json');
 	let emitJsonPath: string | undefined;
 	if (emitJsonIndex !== -1) {
-		emitJsonPath = args[emitJsonIndex + 1];
-		if (!emitJsonPath) throw new Error('--emit-json requires a file path argument.');
+		emitJsonPath = readFlagValue(args, emitJsonIndex, '--emit-json');
 		args.splice(emitJsonIndex, 2);
 	}
 
 	const isbnIndex = args.indexOf('--isbn');
 	let isbn: string | undefined;
 	if (isbnIndex !== -1) {
-		isbn = args[isbnIndex + 1];
-		if (!isbn) throw new Error('--isbn requires a value.');
+		isbn = readFlagValue(args, isbnIndex, '--isbn');
 		args.splice(isbnIndex, 2);
 	}
 
 	const knownIndex = args.indexOf('--known');
 	let known: KnownFacts | undefined;
 	if (knownIndex !== -1) {
-		const knownPath = args[knownIndex + 1];
-		if (!knownPath) throw new Error('--known requires a file path argument.');
+		const knownPath = readFlagValue(args, knownIndex, '--known');
 		known = loadKnownFacts(knownPath);
 		args.splice(knownIndex, 2);
 	}
 
-	const title = args.filter((a) => a !== '--force').join(' ').trim();
-	return { title, force, personalNotes, emitJsonPath, isbn, known };
+	const title = args.filter((a) => a !== '--force' && a !== '--trust-known').join(' ').trim();
+	return { title, force, personalNotes, emitJsonPath, isbn, known, trustKnown };
 }
 
 async function main() {
@@ -704,8 +808,9 @@ async function main() {
 	let personalNotes: string | undefined;
 	let isbn: string | undefined;
 	let known: KnownFacts | undefined;
+	let trustKnown: boolean;
 	try {
-		({ title, force, personalNotes, emitJsonPath, isbn, known } = parseArgs(process.argv.slice(2)));
+		({ title, force, personalNotes, emitJsonPath, isbn, known, trustKnown } = parseArgs(process.argv.slice(2)));
 	} catch (err) {
 		console.error(err instanceof Error ? err.message : String(err));
 		process.exit(1);
@@ -738,7 +843,7 @@ async function main() {
 		chapterLimit = pLimit(CHAPTER_CONCURRENCY);
 
 		await app.invoke(
-			{ title, force, personalNotes: combinedNotes || undefined, knownFacts },
+			{ title, force, personalNotes: combinedNotes || undefined, knownFacts, trustKnown },
 			{ recursionLimit: 50 },
 		);
 	} catch (err) {

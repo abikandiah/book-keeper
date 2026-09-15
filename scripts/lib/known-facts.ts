@@ -18,7 +18,10 @@ export const knownFactsSchema = z.object({
 	// skipped — this list is trusted outright as the real, ordered
 	// chapter/section list for this edition. Don't supply a partial or
 	// uncertain list here; leave the field out instead and let outline
-	// search run normally.
+	// search run normally. Still gets one search + a narrow model critique
+	// first (verifyKnownFactsNode in generate-book.ts, skippable via
+	// --trust-known) — the outline-consensus skip above means this is
+	// otherwise the one field with no other check at all.
 	chapters: z.array(z.string()).min(1).optional(),
 	notes: z.string().optional(),
 });

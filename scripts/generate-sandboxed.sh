@@ -8,7 +8,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-usage="Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>] [--isbn <isbn>] [--known <path>]"
+usage="Usage: scripts/generate-sandboxed.sh \"Book Title\" [--force] [--notes <path>] [--isbn <isbn>] [--known <path>] [--trust-known]"
 
 if [ $# -lt 1 ]; then
 	echo "$usage" >&2
@@ -19,6 +19,7 @@ force=""
 notes_path=""
 isbn=""
 known_path=""
+trust_known=""
 title_parts=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -35,27 +36,41 @@ while [ $# -gt 0 ]; do
 		;;
 	--notes)
 		notes_path="${2:-}"
-		if [ -z "$notes_path" ]; then
+		# The `--*` case also catches a left-off value being swallowed by the
+		# *next* flag instead (e.g. `--notes --trust-known`), which would
+		# otherwise fail later with a confusing "file not found: --trust-known"
+		# rather than this clear message.
+		case "$notes_path" in
+		'' | --*)
 			echo "Error: --notes requires a file path argument." >&2
 			exit 1
-		fi
+			;;
+		esac
 		shift 2
 		;;
 	--isbn)
 		isbn="${2:-}"
-		if [ -z "$isbn" ]; then
+		case "$isbn" in
+		'' | --*)
 			echo "Error: --isbn requires a value." >&2
 			exit 1
-		fi
+			;;
+		esac
 		shift 2
 		;;
 	--known)
 		known_path="${2:-}"
-		if [ -z "$known_path" ]; then
+		case "$known_path" in
+		'' | --*)
 			echo "Error: --known requires a file path argument." >&2
 			exit 1
-		fi
+			;;
+		esac
 		shift 2
+		;;
+	--trust-known)
+		trust_known="--trust-known"
+		shift
 		;;
 	*)
 		title_parts+=("$1")
@@ -161,6 +176,9 @@ if [ -n "$known_path" ]; then
 	known_dir="$(cd "$(dirname "$known_path")" && pwd)"
 	docker_volume_args+=(-v "$known_dir/$(basename "$known_path"):/known.json:ro")
 	container_args+=(--known /known.json)
+fi
+if [ -n "$trust_known" ]; then
+	container_args+=(--trust-known)
 fi
 
 echo "Running generation in sandbox..."

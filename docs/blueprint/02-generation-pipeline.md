@@ -327,6 +327,7 @@ function dispatchChapters(state: typeof BookGenState.State) {
 
 const graph = new StateGraph(BookGenState)
   .addNode('setup', setupNode)               // Stage 0
+  .addNode('verifyKnown', verifyKnownFactsNode) // Stage 0.5 — see below; a no-op unless --known's chapters is given
   .addNode('outline', outlineNode)           // Stage 1
   .addNode('chapterDetail', chapterDetailNode) // Stage 2, one invocation per chapter
   .addNode('synthesize', synthesisNode)      // Stage 3 — NOT "synthesis", see above
@@ -335,7 +336,8 @@ const graph = new StateGraph(BookGenState)
   .addNode('fail', failNode)                 // Stage 4 (throws with the last validation error)
   .addNode('publish', publishNode)           // Stage 5 (branch + write + commit)
   .addEdge(START, 'setup')
-  .addEdge('setup', 'outline')
+  .addEdge('setup', 'verifyKnown')
+  .addEdge('verifyKnown', 'outline')
   .addConditionalEdges('outline', dispatchChapters)
   .addEdge('chapterDetail', 'synthesize') // LangGraph waits for every fanned-out branch first
   .addEdge('synthesize', 'validate')
@@ -405,6 +407,40 @@ still run through search+consensus as before, just with the known fields
 passed into `buildOutlinePrompt`/`buildOutlineConsensusPrompt` as facts the
 model shouldn't second-guess — only the genuinely unknown fields are left for
 the candidates/consensus to actually resolve.
+
+### Stage 0.5 — Known-edition resolution + chapter-list verification
+
+Runs between Setup and Outline, for every --known run. Always resolves
+`knownFacts.isbn` (if given) to `editionMeta` up front and stores it on
+state — shared with outlineNode below so the isbn is only ever looked up
+once, and so the verification search can target the isbn-resolved edition
+title rather than a possibly generic/ambiguous CLI title.
+
+The search+critique itself only runs when `--known`'s `chapters` field is
+present — the one field the short-circuit above means gets *zero* other
+verification. One search (`"<title>" chapter list table of contents`,
+excluding books.google.com for the same reason `OUTLINE_SEARCH_STRATEGIES`
+does above) plus one model call (`buildKnownFactsCritiquePrompt`, bound to
+the same narrow `{ plausible, concerns }` shape as the Stage 2 chapter
+critique) judges the whole known-facts object — title/author/year/isbn/
+page_count/chapters together — against the search results. Deliberately
+narrow like its Stage 2 counterpart: thin or inconclusive search results are
+explicitly not grounds to flag anything (chapter-level web coverage is often
+sparse, and the reader likely knows their own book better than what's
+indexed); only a specific, direct contradiction (wrong edition, mismatched
+author, a chapter list that's clearly for a different book, a leftover
+template placeholder) does. A flagged result throws — caught by `main()`'s
+existing catch, printed, process exits — rather than blocking silently or
+attempting an auto-fix (a model-proposed "corrected" list would reintroduce
+exactly the unreliability `--known` exists to route around). If the search or
+critique call itself fails (network/API error), that's treated as
+inconclusive rather than fatal — logged (to stderr, so it's not easy to miss
+even with stdout redirected/scrolled past), then proceeds on trust, since
+this check is a safety net for a *reader's* mistake, not something that
+should itself become a new reason for the run to fail. `--trust-known` skips
+the search+critique entirely, for a file you've
+already verified by hand. See `verifyKnownFactsNode` in
+`scripts/generate-book.ts`.
 
 **Cover lookup (not model output):** after the outline call, look up an ISBN
 via `scripts/lib/openlibrary.ts`'s `lookupIsbn(title, author)` — a direct

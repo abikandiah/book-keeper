@@ -1,4 +1,5 @@
 import type { Outline } from '../../src/content/schema';
+import type { KnownFacts } from './known-facts';
 import type { SearchResult } from '../search/types';
 
 export function formatSearchResults(results: SearchResult[]): string {
@@ -183,6 +184,50 @@ violation.
 Return:
 - plausible: true unless there's a specific fabricated or contradicted claim
 - concerns: the specific fabricated/contradicted claim(s) if not plausible (empty array if plausible)`;
+}
+
+// Sanity-checks a reader-supplied --known file's chapter list before it's
+// trusted outright and outline search is skipped entirely (see
+// verifyKnownFactsNode in generate-book.ts) — this is the one --known path
+// with no other verification at all, so it's worth one search + one model
+// judgment call. Deliberately as narrow as buildChapterCritiquePrompt above:
+// thin/inconclusive search results are expected and NOT grounds to flag
+// anything (the reader may know this book better than what's indexed
+// online) — only a specific, direct contradiction is.
+export function buildKnownFactsCritiquePrompt(known: KnownFacts, results: SearchResult[]): string {
+	const chaptersBlock = known.chapters?.length
+		? `Chapter list (${known.chapters.length}), in order:\n${known.chapters.map((t, i) => `  ${i + 1}. ${t}`).join('\n')}`
+		: '(no chapter list supplied)';
+
+	return `You are sanity-checking a reader-supplied "known facts" file for a
+non-fiction book, before it's trusted outright and used to skip further
+research. The reader claims:
+
+- Title: ${known.title ?? '(not given)'}
+- Author: ${known.author ?? '(not given)'}
+- Year: ${known.year ?? '(not given)'}
+- ISBN: ${known.isbn ?? '(not given)'}
+- Page count: ${known.page_count ?? '(not given)'}
+${chaptersBlock}
+
+Here is what web search turned up about this book:
+
+${formatSearchResults(results)}
+
+Judge only whether the search results directly CONTRADICT what the reader
+supplied — a clearly different book or edition, an author that doesn't
+match, a chapter list search results show belongs to a different work, or
+an entry that looks like a leftover template placeholder (e.g. wrapped in
+angle brackets, or otherwise obviously not a real chapter title) rather than
+actual content. Do NOT flag something just because search results are thin,
+inconclusive, or don't happen to mention every chapter — chapter-level web
+coverage is often sparse, and the reader likely knows this specific book
+better than what's indexed online. "Insufficient evidence to confirm" is not
+a valid concern; only a specific, direct contradiction is.
+
+Return:
+- plausible: true unless there's a specific, direct contradiction
+- concerns: the specific contradiction(s) if not plausible (empty array if plausible)`;
 }
 
 export function buildRepairPrompt(previousOutput: unknown, errors: string[]): string {

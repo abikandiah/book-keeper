@@ -35,8 +35,9 @@ Files you add here besides `example.json` are gitignored (see
 ### `chapters` — read this before filling it in
 
 If given, **it must be the complete, real, ordered chapter/section list** —
-generation trusts it outright and skips outline search entirely, so nothing
-downstream double-checks it. That means:
+generation trusts it outright and skips outline search/consensus entirely
+(one narrow verification check still runs first — see below, and it's not a
+substitute for getting this right). That means:
 
 - **List every chapter**, in the book's actual order. A partial list is
   worse than no list — generation would treat it as the whole book.
@@ -51,3 +52,22 @@ downstream double-checks it. That means:
   sure of the full list, delete the `chapters` field entirely instead —
   generation falls back to its normal search-and-consensus outline stage,
   which is exactly what that path is for.
+
+### Verification
+
+Because `chapters` skips outline search entirely, it's the one field with no
+other check — so whenever it's given, generation runs one extra search and
+a single model critique first, comparing your list against what search
+turns up. It's deliberately narrow: it only flags a *specific, direct*
+contradiction (wrong book/edition, an author that doesn't match, a
+placeholder entry left over from the template) and explicitly ignores thin
+or inconclusive search results, since chapter-level web coverage is often
+sparse and you likely know this book better than what's indexed online.
+
+If it does flag something and you've reviewed the concern and are confident
+your file is actually correct (a bad search, not a real mistake), re-run
+with `--trust-known` to skip the check and proceed anyway:
+
+```
+pnpm run generate:sandboxed -- "Book Title" --known known/my-book.json --trust-known
+```
