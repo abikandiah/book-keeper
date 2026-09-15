@@ -133,6 +133,14 @@ const overwrite = <T,>(_existing: T, update: T): T => update;
 
 const BookGenState = Annotation.Root({
 	title: Annotation<string>(),
+	// False when `title` above is actually the --known file's own basename
+	// (see parseArgs), not a real title the reader typed. outlineNode's
+	// known.chapters branch checks this before ever treating `title` as
+	// publishable — see the comment there. Defaults to `false` (fail
+	// closed), not `true`: this flag exists specifically to gate an unsafe
+	// fallback, so an invoker that forgets to set it explicitly should hit
+	// outlineNode's throw rather than silently trusting an unverified title.
+	titleWasTyped: Annotation<boolean>({ reducer: overwrite, default: () => false }),
 	force: Annotation<boolean>({ reducer: overwrite, default: () => false }),
 	slug: Annotation<string>({ reducer: overwrite, default: () => '' }),
 	originalBranch: Annotation<string>({ reducer: overwrite, default: () => '' }),
@@ -376,7 +384,28 @@ async function outlineNode(state: State): Promise<Partial<State>> {
 	// not removing it. title/author/year are similarly locked wherever
 	// known.
 	if (known?.chapters && known.chapters.length > 0) {
-		title = known?.title ?? searchTitle;
+		// No model call happens on this branch to produce a real title from
+		// search — unlike the else branch below, there's nothing to catch a
+		// bad title here. So `title` may ONLY come from a real source: the
+		// known file's own `title`, an isbn-resolved edition title, or a
+		// title the reader actually typed. `state.title` alone is NOT
+		// enough — when no title was typed, it's just --known's basename
+		// (see parseArgs), which must never get published as if it were
+		// the book's real title.
+		// `||`, not `??` — matches resolveKnownSearchTitle's own convention
+		// (see its comment above): knownFacts.title isn't rejected as `""` by
+		// the schema, and an empty string must fall through here exactly like
+		// `undefined` would, e.g. so a resolvable isbn edition title further
+		// down the chain still gets used.
+		const resolvedTitle: string | undefined =
+			known?.title || editionMeta?.title || (state.titleWasTyped ? state.title : undefined);
+		if (!resolvedTitle) {
+			throw new Error(
+				`--known file has "chapters" but no "title", and no title was given on the command line ` +
+					'(or resolvable via "isbn"). Add "title" to the known file, or pass one explicitly.',
+			);
+		}
+		title = resolvedTitle;
 		author = known?.author ?? editionMeta?.author;
 		year = known?.year ?? editionMeta?.year;
 		chapterTitles = known.chapters;
@@ -748,6 +777,22 @@ function readFlagValue(args: string[], index: number, flag: string): string {
 	return value;
 }
 
+// Case-insensitive .json suffix strip for the --known basename fallback
+// below — `path.basename(p, '.json')` only strips an exact-case match, so a
+// `.JSON`-cased file would otherwise leave the extension stuck onto the
+// derived title/slug. A plain regex, not `path.extname` + `path.basename`:
+// `path.extname('.json')` returns `''` (Node treats a leading-dot-only name
+// as extension-less, confirmed directly), which would leave a --known path
+// that's literally named ".json" unstripped instead of correctly reducing
+// to "" (matching the empty-title error path below). Mirrored in
+// scripts/generate-sandboxed.sh's own basename fallback (bash has no
+// case-insensitive `basename` built in) — keep both in sync if this rule
+// ever changes.
+function stripJsonExtension(filePath: string): string {
+	const base = path.basename(filePath);
+	return /\.json$/i.test(base) ? base.slice(0, -'.json'.length) : base;
+}
+
 // Pulls --notes/--known/--emit-json <path> and --isbn <isbn> (value-taking
 // flags) out before the remaining args are joined back into the title, and
 // reads the notes/known-facts files eagerly so a bad path fails fast rather
@@ -756,6 +801,7 @@ function parseArgs(
 	argv: string[],
 ): {
 	title: string;
+	titleWasTyped: boolean;
 	force: boolean;
 	personalNotes?: string;
 	emitJsonPath?: string;
@@ -769,6 +815,16 @@ function parseArgs(
 	const args = argv.filter((a) => a !== '--');
 	const force = args.includes('--force');
 	const trustKnown = args.includes('--trust-known');
+	// Internal flag, set only by scripts/generate-sandboxed.sh — never
+	// documented for a human to type. That wrapper has to resolve the
+	// --known basename fallback itself (it needs a concrete title before it
+	// ever invokes this script, for its own host-side pre-flight check), so
+	// by the time this process sees the positional title it's always
+	// "typed" from this script's own point of view — this flag is how the
+	// wrapper tells it "no, that title is actually my own fallback," so
+	// `titleWasTyped` ends up correct across that process boundary too, not
+	// just for a direct, non-sandboxed invocation.
+	const titleNotTyped = args.includes('--title-not-typed');
 
 	const notesIndex = args.indexOf('--notes');
 	let personalNotes: string | undefined;
@@ -801,27 +857,43 @@ function parseArgs(
 		args.splice(knownIndex, 2);
 	}
 
-	const typedTitle = args.filter((a) => a !== '--force' && a !== '--trust-known').join(' ').trim();
+	const typedTitle = args
+		.filter((a) => a !== '--force' && a !== '--trust-known' && a !== '--title-not-typed')
+		.join(' ')
+		.trim();
 	// Falls back to the --known file's own basename (e.g.
 	// `known/the-undiscovered-self.json` -> "the-undiscovered-self") when no
 	// title was typed, so `--known <path>` can work standalone as long as
-	// the file's named after the book. Only seeds the working slug and the
-	// last-resort search-title fallback — the *published* title still comes
-	// from known.title (if given) via outlineNode's own precedence, so this
-	// never papers over a missing known.title with a worse one.
-	const title = typedTitle || (knownPath ? path.basename(knownPath, '.json') : '');
-	return { title, force, personalNotes, emitJsonPath, isbn, known, trustKnown };
+	// the file's named after the book. This seeds the working slug and the
+	// search-title fallback, but it's NOT a real title — outlineNode's
+	// known.chapters branch (the one path with no model call to produce a
+	// real title from search) must not let this leak through as the
+	// *published* title, so `titleWasTyped` lets it tell the difference.
+	const title = typedTitle || (knownPath ? stripJsonExtension(knownPath) : '');
+	return {
+		title,
+		titleWasTyped: !!typedTitle && !titleNotTyped,
+		force,
+		personalNotes,
+		emitJsonPath,
+		isbn,
+		known,
+		trustKnown,
+	};
 }
 
 async function main() {
 	let title: string;
+	let titleWasTyped: boolean;
 	let force: boolean;
 	let personalNotes: string | undefined;
 	let isbn: string | undefined;
 	let known: KnownFacts | undefined;
 	let trustKnown: boolean;
 	try {
-		({ title, force, personalNotes, emitJsonPath, isbn, known, trustKnown } = parseArgs(process.argv.slice(2)));
+		({ title, titleWasTyped, force, personalNotes, emitJsonPath, isbn, known, trustKnown } = parseArgs(
+			process.argv.slice(2),
+		));
 	} catch (err) {
 		console.error(err instanceof Error ? err.message : String(err));
 		process.exit(1);
@@ -854,7 +926,7 @@ async function main() {
 		chapterLimit = pLimit(CHAPTER_CONCURRENCY);
 
 		await app.invoke(
-			{ title, force, personalNotes: combinedNotes || undefined, knownFacts, trustKnown },
+			{ title, titleWasTyped, force, personalNotes: combinedNotes || undefined, knownFacts, trustKnown },
 			{ recursionLimit: 50 },
 		);
 	} catch (err) {

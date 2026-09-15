@@ -58,6 +58,10 @@ substitute for getting this right). That means:
   sure of the full list, delete the `chapters` field entirely instead —
   generation falls back to its normal search-and-consensus outline stage,
   which is exactly what that path is for.
+- **Also fill in `title`** (or `isbn`, or type a title on the command line)
+  when giving `chapters` — this path has no search step to fall back on for
+  the title the way the normal outline stage does, so generation refuses to
+  guess and errors out if none of those three are available.
 
 ### Verification
 

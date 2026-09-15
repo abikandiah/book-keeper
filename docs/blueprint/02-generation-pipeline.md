@@ -54,12 +54,30 @@ for `notes`.
 
 The CLI's positional title argument itself is optional whenever `--known` is
 given — `parseArgs` falls back to the known file's own basename (stripped of
-`.json`) as the working title/slug seed when none was typed, so `--known
-known/foo.json` alone is enough as long as the file's named after the book.
-This only ever seeds `setupNode`'s slug derivation and the last-resort
-search-title fallback (`resolveKnownSearchTitle`) — the *published* title
-still comes from `knownFacts.title` via outlineNode's own precedence chain,
-so a filename-derived stand-in never displaces a real one.
+`.json`, case-insensitively — see `stripJsonExtension`) as the working
+title/slug seed when none was typed, so `--known known/foo.json` alone is
+enough as long as the file's named after the book. `titleWasTyped` tracks
+whether this happened, because the fallback is NOT safe to treat as a real
+title everywhere: it's fine as `setupNode`'s slug seed and as
+`resolveKnownSearchTitle`'s last-resort search-query text (worst case, a
+weak search query), but outlineNode's `known.chapters` branch has no model
+call to turn a bad title into a good one the way the search+consensus branch
+does — so that branch explicitly refuses to fall back to a
+`titleWasTyped: false` title, throwing instead when no real title is
+available from anywhere (`knownFacts.title`, an isbn lookup, or an
+actually-typed title).
+
+`generate-sandboxed.sh` (the documented/recommended entrypoint) needs its
+own resolved title *before* it ever invokes this script — it uses it for
+its own host-side pre-flight check, ahead of building/running anything —
+so by the time this script sees a title from that wrapper, it always looks
+"typed" from this process's own point of view, even when the wrapper
+computed it from the same basename fallback. `--title-not-typed`, an
+internal flag `generate-sandboxed.sh` sets (never documented for a human to
+type directly), carries that "actually, this is my own fallback" signal
+across that process boundary, so `titleWasTyped` — and therefore
+outlineNode's refusal to publish an unverified title — is correct for the
+sandboxed path too, not just a direct, non-sandboxed invocation.
 
 ## Why multiple stages instead of one prompt
 

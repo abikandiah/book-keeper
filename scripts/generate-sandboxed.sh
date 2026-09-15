@@ -11,10 +11,10 @@ cd "$(dirname "$0")/.."
 usage="Usage: scripts/generate-sandboxed.sh [\"Book Title\"] [--force] [--notes <path>] [--isbn <isbn>] [--known <path>] [--trust-known]
 (\"Book Title\" may be omitted when --known is given -- it falls back to the known file's own name.)"
 
-if [ $# -lt 1 ]; then
-	echo "$usage" >&2
-	exit 1
-fi
+# No "at least one arg" guard here (a zero-arg call is otherwise a valid
+# shape now, e.g. bare `--known <path>` alone) -- the real completeness
+# check is the `[ -z "$title" ]` guard below, once title has had a chance to
+# fall back to --known's basename.
 
 force=""
 notes_path=""
@@ -81,16 +81,33 @@ while [ $# -gt 0 ]; do
 done
 
 title="${title_parts[*]}"
+title_not_typed=""
 # Falls back to the --known file's own basename (e.g.
 # known/the-undiscovered-self.json -> "the-undiscovered-self") when no title
 # was typed, so `--known <path>` can work standalone as long as the file's
-# named after the book. Only seeds the working slug/branch name -- the
-# *published* title still comes from the known file's own "title" field via
-# generate-book.ts's own precedence, so this never papers over a missing one
-# with a worse one. Plain `basename`, not jq -- no need to parse the JSON at
-# all just to get this fallback.
+# named after the book. Resolved here (not left to the container) because
+# this script needs a concrete title before it ever runs anything, for its
+# own host-side pre-flight check below -- but that means the container would
+# otherwise see this title as if it had been typed on the command line, with
+# no way to tell the difference. `title_not_typed` (forwarded as
+# --title-not-typed in container_args below) is exactly that missing
+# signal: generate-book.ts's own parseArgs uses it to set `titleWasTyped`
+# correctly even across this process boundary, so outlineNode's refusal to
+# publish a slug-shaped title still applies to this, the actually-documented
+# way to run generation -- not just to a direct, non-sandboxed invocation.
+# generate-book.ts's stripJsonExtension applies the identical basename rule
+# (keep both in sync if it ever changes).
+#
+# `case` (not `basename "$known_path" .json`, which only strips an
+# exact-case ".json") so a `.JSON`-cased file still gets its extension
+# stripped -- bash has no case-insensitive `basename` built in.
 if [ -z "$title" ] && [ -n "$known_path" ]; then
-	title="$(basename "$known_path" .json)"
+	known_base="$(basename "$known_path")"
+	case "$known_base" in
+	*.[jJ][sS][oO][nN]) title="${known_base%.*}" ;;
+	*) title="$known_base" ;;
+	esac
+	title_not_typed="1"
 fi
 if [ -z "$title" ]; then
 	echo "$usage" >&2
@@ -191,6 +208,9 @@ if [ -n "$known_path" ]; then
 fi
 if [ -n "$trust_known" ]; then
 	container_args+=(--trust-known)
+fi
+if [ -n "$title_not_typed" ]; then
+	container_args+=(--title-not-typed)
 fi
 
 echo "Running generation in sandbox..."
